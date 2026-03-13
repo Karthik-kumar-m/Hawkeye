@@ -114,6 +114,9 @@ class SessionRead(BaseModel):
     status: str
     trust_score: int
     violations: int
+    correct_answers: Optional[int] = None
+    total_questions: Optional[int] = None
+    score_percent: Optional[float] = None
 
 
 class SessionCompleteResponse(BaseModel):

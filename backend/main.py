@@ -36,12 +36,23 @@ def _ensure_exam_test_schedule_columns(sync_conn):
         sync_conn.execute(text("ALTER TABLE exam_tests ADD COLUMN duration_minutes INTEGER"))
 
 
+def _ensure_question_columns(sync_conn):
+    inspector = inspect(sync_conn)
+    if "questions" not in inspector.get_table_names():
+        return
+
+    existing = {column["name"] for column in inspector.get_columns("questions")}
+    if "correct_option" not in existing:
+        sync_conn.execute(text("ALTER TABLE questions ADD COLUMN correct_option VARCHAR(1)"))
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Create all tables on startup (dev convenience – use Alembic in prod)."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         await conn.run_sync(_ensure_exam_test_schedule_columns)
+        await conn.run_sync(_ensure_question_columns)
     yield
 
 

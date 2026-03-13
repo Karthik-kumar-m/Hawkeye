@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 try:
     from ..database import get_db
-    from ..models import ExamTest, StudentAccount, TeacherAccount, TestStudentAccess
+    from ..models import ExamTest, Question, StudentAccount, TeacherAccount, TestStudentAccess
     from ..schemas import (
         ExamTestRead,
         QuestionPreviewItem,
@@ -24,7 +24,7 @@ try:
     )
 except ImportError:
     from database import get_db
-    from models import ExamTest, StudentAccount, TeacherAccount, TestStudentAccess
+    from models import ExamTest, Question, StudentAccount, TeacherAccount, TestStudentAccess
     from schemas import (
         ExamTestRead,
         QuestionPreviewItem,
@@ -302,6 +302,12 @@ async def upload_test_pdf(
         content = await pdf_file.read()
         out_file.write(content)
 
+    parsed_questions: list[QuestionPreviewItem] = []
+    try:
+        parsed_questions, _, _ = _parse_question_source(content)
+    except Exception:
+        parsed_questions = []
+
     pdf_url = f"/uploads/tests/{saved_name}"
 
     test = ExamTest(
@@ -315,6 +321,20 @@ async def upload_test_pdf(
     )
     db.add(test)
     await db.flush()
+
+    for parsed in parsed_questions:
+        db.add(
+            Question(
+                test_id=test.id,
+                question_number=parsed.question_number,
+                question_text=parsed.question_text,
+                option_a=parsed.option_a,
+                option_b=parsed.option_b,
+                option_c=parsed.option_c,
+                option_d=parsed.option_d,
+                correct_option=parsed.correct_option,
+            )
+        )
 
     for usn in usns:
         student_result = await db.execute(select(StudentAccount).where(StudentAccount.username == usn))

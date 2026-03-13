@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
-import { useNavigate } from 'react-router-dom'
+import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { Upload, BookOpen, AlertTriangle } from 'lucide-react'
 
 const TESTS_API = '/api/v1/tests/'
@@ -35,6 +34,9 @@ const EVENT_UI = {
 const REASON_LABELS = {
   tab_switch_start: 'Student switched away from exam tab',
   tab_switch_duration: 'Student was away from exam tab for some time',
+  window_focus_lost: 'Student switched away from exam window',
+  window_focus_returned: 'Student returned to exam window after focus loss',
+  fullscreen_exited: 'Student exited fullscreen mode',
   right_click: 'Right-click attempt detected',
   window_resized_below_threshold: 'Window size dropped below minimum threshold',
   blocked_keyboard_shortcut: 'Blocked keyboard shortcut attempt',
@@ -43,6 +45,11 @@ const REASON_LABELS = {
 
 export default function TeacherPortal() {
   const navigate = useNavigate()
+  const location = useLocation()
+  const routeSection = location.pathname.split('/')[2] || 'dashboard'
+  const activeSection = ['dashboard', 'results', 'violations', 'profile'].includes(routeSection)
+    ? routeSection
+    : 'dashboard'
   const [teacherUsername, setTeacherUsername] = useState('')
   const [teacherPassword, setTeacherPassword] = useState('')
   const [isRegisterMode, setIsRegisterMode] = useState(false)
@@ -117,6 +124,9 @@ export default function TeacherPortal() {
         status: item.status,
         trustScore: item.trust_score,
         violations: item.violations,
+        correctAnswers: item.correct_answers,
+        totalQuestions: item.total_questions,
+        scorePercent: item.score_percent,
       }))
       setSessions(normalized)
     } catch {
@@ -178,6 +188,9 @@ export default function TeacherPortal() {
                 status: session_status || 'active',
                 trustScore: trust_score ?? 100,
                 violations: event_type === 'VIOLATION_DETECTED' ? 1 : 0,
+                correctAnswers: null,
+                totalQuestions: null,
+                scorePercent: null,
               },
               ...prev,
             ]
@@ -293,6 +306,15 @@ export default function TeacherPortal() {
     if (!selectedTestForMonitoring) return true
     return (session.testId || '').toUpperCase() === selectedTestForMonitoring.toUpperCase()
   })
+  const resultSessions = [...monitoredSessions].sort((a, b) => {
+    const aScore = Number(a.scorePercent)
+    const bScore = Number(b.scorePercent)
+    if (Number.isFinite(aScore) && Number.isFinite(bScore)) return bScore - aScore
+    if (Number.isFinite(aScore)) return -1
+    if (Number.isFinite(bScore)) return 1
+    return 0
+  })
+  const violationSessions = [...monitoredSessions].sort((a, b) => b.violations - a.violations)
   const totalViolations = monitoredSessions.reduce((sum, item) => sum + item.violations, 0)
   const averageTrustScore =
     monitoredSessions.length > 0
@@ -301,7 +323,52 @@ export default function TeacherPortal() {
             monitoredSessions.length
         )
       : 0
+  const scoredSessions = monitoredSessions.filter((item) => Number.isFinite(Number(item.scorePercent)))
+  const averageScore =
+    scoredSessions.length > 0
+      ? Math.round(
+          scoredSessions.reduce((sum, item) => sum + Number(item.scorePercent), 0) /
+            scoredSessions.length
+        )
+      : null
   const selectedTimeline = selectedSession ? timelineBySession[selectedSession.id] || [] : []
+  const hasQuestionFile = !!pdfFile
+  const hasUsnFile = !!usnPdfFile
+  const usnPreviewReady =
+    !!previewData &&
+    previewData.accepted_count > 0 &&
+    previewFileSignature === `${usnPdfFile?.name || ''}:${usnPdfFile?.size || ''}`
+  const questionPreviewReady = !!questionPreviewData && questionPreviewData.total_detected_questions > 0
+
+  const getScoreBandMeta = (score) => {
+    const numeric = Number(score)
+    if (!Number.isFinite(numeric)) {
+      return {
+        value: 'N/A',
+        badgeClass: 'bg-slate-100 text-slate-700',
+        textClass: 'text-slate-700',
+      }
+    }
+    if (numeric >= 85) {
+      return {
+        value: `${numeric}%`,
+        badgeClass: 'bg-emerald-100 text-emerald-800',
+        textClass: 'text-emerald-700',
+      }
+    }
+    if (numeric >= 60) {
+      return {
+        value: `${numeric}%`,
+        badgeClass: 'bg-amber-100 text-amber-800',
+        textClass: 'text-amber-700',
+      }
+    }
+    return {
+      value: `${numeric}%`,
+      badgeClass: 'bg-red-100 text-red-700',
+      textClass: 'text-red-700',
+    }
+  }
 
   const handleTeacherAuth = async (event) => {
     event.preventDefault()
@@ -461,33 +528,40 @@ export default function TeacherPortal() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-100 px-4 py-10">
-      <div className="max-w-5xl mx-auto space-y-6">
-        <div className="bg-white rounded-lg border border-slate-200 shadow-sm p-6">
-          <h1 className="text-2xl font-bold text-slate-800">Teacher Console</h1>
-          <p className="text-sm text-slate-500 mt-1">
-            Use one authenticated screen for test setup and live violation monitoring.
-          </p>
-          <p className="text-xs text-slate-400 mt-2">
-            <Link to="/" className="text-blue-700 hover:text-blue-800">Back to Student Login</Link>
-          </p>
+    <div className="app-shell">
+      <div className="max-w-6xl mx-auto space-y-6">
+        <div className="panel animate-rise-in">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <h1 className="text-3xl font-bold text-slate-800">Teacher Operations Console</h1>
+              <p className="text-sm text-slate-500 mt-1">
+                Manage exam uploads, monitor violations, and review performance from one place.
+              </p>
+              <p className="text-xs text-slate-400 mt-2">
+                <Link to="/" className="text-cyan-800 hover:text-cyan-900">Back to Student Login</Link>
+              </p>
+            </div>
+            {isTeacherAuthenticated && (
+              <div className="flex items-center gap-2">
+                <span className="chip bg-cyan-100 text-cyan-800">{teacherUsername || 'Teacher'}</span>
+                <button
+                  type="button"
+                  onClick={handleTeacherLogout}
+                  className="text-sm font-semibold text-red-700 border border-red-300 hover:bg-red-50 px-4 py-2 rounded-xl"
+                >
+                  Logout
+                </button>
+              </div>
+            )}
+          </div>
         </div>
 
-        <div className="bg-white rounded-lg border border-slate-200 shadow-sm p-6">
+        <div className="panel">
           <div className="flex items-start justify-between gap-4 flex-wrap">
             <div>
               <h2 className="text-lg font-semibold text-slate-800 mb-1">Teacher Authentication</h2>
               {authMessage && <p className="text-sm text-slate-600">{authMessage}</p>}
             </div>
-            {isTeacherAuthenticated && (
-              <button
-                type="button"
-                onClick={handleTeacherLogout}
-                className="text-xs font-semibold text-red-700 border border-red-200 hover:bg-red-50 px-3 py-1.5 rounded-md"
-              >
-                Logout Teacher
-              </button>
-            )}
           </div>
 
           {!isTeacherAuthenticated && (
@@ -499,7 +573,7 @@ export default function TeacherPortal() {
                   onChange={(e) => setTeacherUsername(e.target.value)}
                   placeholder="teacher username"
                   required
-                  className="border border-slate-300 rounded-md px-3 py-2 text-sm"
+                  className="input-field"
                 />
                 <input
                   type="password"
@@ -507,11 +581,11 @@ export default function TeacherPortal() {
                   onChange={(e) => setTeacherPassword(e.target.value)}
                   placeholder="password"
                   required
-                  className="border border-slate-300 rounded-md px-3 py-2 text-sm"
+                  className="input-field"
                 />
                 <button
                   type="submit"
-                  className="bg-slate-800 text-white rounded-md px-3 py-2 text-sm font-semibold hover:bg-slate-900"
+                  className="primary-btn text-sm"
                 >
                   {isRegisterMode ? 'Register Teacher' : 'Login Teacher'}
                 </button>
@@ -520,7 +594,7 @@ export default function TeacherPortal() {
               <button
                 type="button"
                 onClick={() => setIsRegisterMode((v) => !v)}
-                className="mt-3 text-xs text-blue-700 hover:text-blue-800"
+                className="mt-3 text-xs text-cyan-800 hover:text-cyan-900"
               >
                 {isRegisterMode ? 'Have account? Switch to login' : 'New teacher? Create account'}
               </button>
@@ -528,95 +602,164 @@ export default function TeacherPortal() {
           )}
         </div>
 
-        <div className="bg-white rounded-lg border border-slate-200 shadow-sm p-6">
-          <h2 className="text-lg font-semibold text-slate-800 mb-4">Upload New Test</h2>
-          <form onSubmit={handleUpload} className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
-            <input
-              type="text"
-              value={testId}
-              onChange={(e) => setTestId(e.target.value)}
-              placeholder="test id"
-              required
-              disabled={!isTeacherAuthenticated}
-              className="border border-slate-300 rounded-md px-3 py-2 text-sm"
-            />
-            <input
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="test title"
-              required
-              disabled={!isTeacherAuthenticated}
-              className="border border-slate-300 rounded-md px-3 py-2 text-sm"
-            />
-            <input
-              type="number"
-              min="1"
-              value={durationMinutes}
-              onChange={(e) => setDurationMinutes(Number(e.target.value || 1))}
-              required
-              disabled={!isTeacherAuthenticated}
-              className="border border-slate-300 rounded-md px-3 py-2 text-sm"
-              placeholder="Duration (minutes)"
-            />
-            <input
-              type="file"
-              accept=".pdf,.txt,text/plain"
-              onChange={(e) => {
-                setPdfFile(e.target.files?.[0] || null)
-                setQuestionPreviewData(null)
-                setQuestionPreviewError('')
-              }}
-              required
-              disabled={!isTeacherAuthenticated}
-              className="border border-slate-300 rounded-md px-3 py-2 text-sm"
-            />
-            <input
-              type="file"
-              accept="application/pdf"
-              onChange={(e) => {
-                setUsnPdfFile(e.target.files?.[0] || null)
-                setPreviewData(null)
-                setPreviewFileSignature('')
-              }}
-              required
-              disabled={!isTeacherAuthenticated}
-              className="border border-slate-300 rounded-md px-3 py-2 text-sm"
-            />
-            <button
-              type="submit"
-              disabled={!isTeacherAuthenticated}
-              className="flex items-center justify-center gap-2 bg-blue-700 text-white rounded-md px-3 py-2 text-sm font-semibold hover:bg-blue-800 disabled:opacity-50"
-            >
-              <Upload size={14} /> Upload PDF Test
-            </button>
+        {isTeacherAuthenticated && (
+          <div className="panel py-4">
+            <nav className="flex flex-wrap gap-2">
+              {[
+                ['dashboard', 'Dashboard'],
+                ['results', 'Results'],
+                ['violations', 'Violations'],
+                ['profile', 'Profile'],
+              ].map(([key, label]) => (
+                <NavLink
+                  key={key}
+                  to={`/teacher/${key}`}
+                  className={({ isActive }) =>
+                    `px-4 py-2 rounded-xl text-sm font-semibold transition ${
+                      isActive
+                        ? 'bg-cyan-700 text-white'
+                        : 'bg-white/90 border border-slate-200 text-slate-700 hover:bg-slate-50'
+                    }`
+                  }
+                >
+                  {label}
+                </NavLink>
+              ))}
+            </nav>
+          </div>
+        )}
+
+        {isTeacherAuthenticated && activeSection === 'dashboard' && (
+        <div className="panel">
+          <div className="flex items-start justify-between gap-4 flex-wrap mb-5">
+            <div>
+              <h2 className="text-2xl font-bold text-slate-800">Create and Publish New Test</h2>
+              <p className="text-sm text-slate-600 mt-1">
+                Follow the 4-step workflow below. All required checks are visible before publish.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2 text-xs">
+              <span className={`chip ${hasQuestionFile ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'}`}>
+                1. Question File {hasQuestionFile ? 'Ready' : 'Pending'}
+              </span>
+              <span className={`chip ${hasUsnFile ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'}`}>
+                2. USN File {hasUsnFile ? 'Ready' : 'Pending'}
+              </span>
+              <span className={`chip ${usnPreviewReady ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
+                3. USN Preview {usnPreviewReady ? 'Verified' : 'Required'}
+              </span>
+              <span className={`chip ${questionPreviewReady ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'}`}>
+                4. Question Preview {questionPreviewReady ? 'Verified' : 'Optional'}
+              </span>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-cyan-200 bg-cyan-50/70 p-4 mb-5">
+            <p className="text-sm font-semibold text-cyan-900 mb-2">Operator Instructions</p>
+            <ol className="list-decimal pl-5 space-y-1 text-sm text-cyan-900">
+              <li>Enter test details and upload both files.</li>
+              <li>Run USN preview and ensure valid student IDs are detected.</li>
+              <li>Run question preview to confirm answer-key parsing.</li>
+              <li>Click Publish Test to make exam active immediately.</li>
+            </ol>
+          </div>
+
+          <form onSubmit={handleUpload} className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-end">
+            <div>
+              <label className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Test ID</label>
+              <input
+                type="text"
+                value={testId}
+                onChange={(e) => setTestId(e.target.value)}
+                placeholder="e.g. MC-APR-01"
+                required
+                disabled={!isTeacherAuthenticated}
+                className="input-field mt-1"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Test Title</label>
+              <input
+                type="text"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="e.g. Midterm Mock Test"
+                required
+                disabled={!isTeacherAuthenticated}
+                className="input-field mt-1"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Duration (minutes)</label>
+              <input
+                type="number"
+                min="1"
+                value={durationMinutes}
+                onChange={(e) => setDurationMinutes(Number(e.target.value || 1))}
+                required
+                disabled={!isTeacherAuthenticated}
+                className="input-field mt-1"
+                placeholder="Duration (minutes)"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Question Paper (PDF/TXT)</label>
+              <input
+                type="file"
+                accept=".pdf,.txt,text/plain"
+                onChange={(e) => {
+                  setPdfFile(e.target.files?.[0] || null)
+                  setQuestionPreviewData(null)
+                  setQuestionPreviewError('')
+                }}
+                required
+                disabled={!isTeacherAuthenticated}
+                className="input-field mt-1"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Student Roster PDF</label>
+              <input
+                type="file"
+                accept="application/pdf"
+                onChange={(e) => {
+                  setUsnPdfFile(e.target.files?.[0] || null)
+                  setPreviewData(null)
+                  setPreviewFileSignature('')
+                }}
+                required
+                disabled={!isTeacherAuthenticated}
+                className="input-field mt-1"
+              />
+            </div>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={handlePreviewUsns}
+                disabled={!isTeacherAuthenticated || !usnPdfFile || previewLoading}
+                className="secondary-btn text-sm flex-1"
+              >
+                {previewLoading ? 'Previewing USNs...' : 'Preview USNs'}
+              </button>
+              <button
+                type="button"
+                onClick={handlePreviewQuestions}
+                disabled={!isTeacherAuthenticated || !pdfFile || questionPreviewLoading}
+                className="secondary-btn text-sm flex-1"
+              >
+                {questionPreviewLoading ? 'Parsing Questions...' : 'Preview Questions'}
+              </button>
+            </div>
+            <div className="lg:col-span-2">
+              <button
+                type="submit"
+                disabled={!isTeacherAuthenticated}
+                className="primary-btn w-full flex items-center justify-center gap-2 text-base"
+              >
+                <Upload size={16} /> Publish Test
+              </button>
+            </div>
           </form>
-          <div className="mt-3 flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              onClick={handlePreviewUsns}
-              disabled={!isTeacherAuthenticated || !usnPdfFile || previewLoading}
-              className="bg-slate-700 text-white rounded-md px-3 py-2 text-xs font-semibold hover:bg-slate-800 disabled:opacity-50"
-            >
-              {previewLoading ? 'Previewing...' : 'Preview Parsed USNs'}
-            </button>
-            <p className="text-xs text-slate-500">
-              Run preview first to verify only valid college USNs are being accepted.
-            </p>
-          </div>
-          <div className="mt-2 flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              onClick={handlePreviewQuestions}
-              disabled={!isTeacherAuthenticated || !pdfFile || questionPreviewLoading}
-              className="bg-indigo-700 text-white rounded-md px-3 py-2 text-xs font-semibold hover:bg-indigo-800 disabled:opacity-50"
-            >
-              {questionPreviewLoading ? 'Parsing Questions...' : 'Preview Parsed Questions'}
-            </button>
-            <p className="text-xs text-slate-500">
-              Use this to verify whether questions/options are detected correctly from a PDF or plain text question sheet.
-            </p>
-          </div>
 
           <div className="mt-4 rounded-md border border-blue-200 bg-blue-50 p-3">
             <p className="text-xs font-semibold text-blue-900 mb-1">Question Format Demo (PDF or plain text)</p>
@@ -709,19 +852,23 @@ Correct Answer: C`}
               )}
             </div>
           )}
-          <p className="mt-2 text-xs text-slate-500">
+          <p className="mt-2 text-sm text-slate-600">
             Upload 1) the actual question paper PDF for students and 2) roster PDF containing student USNs.
             Question preview accepts the same PDF or a plain text version of the questions.
             Test starts automatically at upload time; teachers only set duration.
           </p>
           {uploadMessage && <p className="mt-3 text-sm text-slate-600">{uploadMessage}</p>}
         </div>
+        )}
 
-        <div className="bg-white rounded-lg border border-slate-200 shadow-sm p-6">
+        {isTeacherAuthenticated && (activeSection === 'results' || activeSection === 'violations') && (
+        <div className="panel">
           <div className="flex items-center justify-between gap-3 flex-wrap mb-4">
             <div className="flex items-center gap-2">
               <BookOpen size={18} className="text-slate-700" />
-              <h2 className="text-lg font-semibold text-slate-800">Test Sessions & Violations</h2>
+              <h2 className="text-lg font-semibold text-slate-800">
+                {activeSection === 'results' ? 'Result Analytics' : 'Violation Monitoring'}
+              </h2>
             </div>
             <div className="flex items-center gap-3">
               <label className="text-xs text-slate-500">Selected test</label>
@@ -729,7 +876,7 @@ Correct Answer: C`}
                 value={selectedTestForMonitoring}
                 onChange={(e) => setSelectedTestForMonitoring(e.target.value)}
                 disabled={!isTeacherAuthenticated || tests.length === 0}
-                className="border border-slate-300 rounded-md px-2 py-1.5 text-sm disabled:opacity-50"
+                className="input-field max-w-[220px] py-1.5"
               >
                 {tests.map((test) => (
                   <option key={test.id} value={test.test_id}>
@@ -740,9 +887,7 @@ Correct Answer: C`}
             </div>
           </div>
 
-          {!isTeacherAuthenticated ? (
-            <p className="text-sm text-slate-500">Login as teacher to view live violations.</p>
-          ) : tests.length === 0 ? (
+          {tests.length === 0 ? (
             <p className="text-sm text-slate-500">No tests uploaded yet.</p>
           ) : monitoredSessions.length === 0 ? (
             <>
@@ -791,102 +936,288 @@ Correct Answer: C`}
                 )}
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
-                <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
-                  <p className="text-xs text-slate-500">Sessions</p>
-                  <p className="text-2xl font-semibold text-slate-800">{monitoredSessions.length}</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
+                <div className="rounded-xl border border-slate-200 bg-white/95 p-4">
+                  <p className="text-sm text-slate-500">Sessions</p>
+                  <p className="text-3xl font-bold text-slate-800 mt-1">{monitoredSessions.length}</p>
                 </div>
-                <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
-                  <p className="text-xs text-slate-500">Active Sessions</p>
-                  <p className="text-2xl font-semibold text-slate-800">
-                    {monitoredSessions.filter((session) => session.status === 'active').length}
-                  </p>
+                {activeSection === 'results' ? (
+                  <div className="rounded-xl border border-slate-200 bg-white/95 p-4">
+                    <p className="text-sm text-slate-500">Average Score</p>
+                    <p className="text-3xl font-bold text-emerald-700 mt-1">
+                      {averageScore === null ? 'N/A' : `${averageScore}%`}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-slate-200 bg-white/95 p-4">
+                    <p className="text-sm text-slate-500">Active Sessions</p>
+                    <p className="text-3xl font-bold text-slate-800 mt-1">
+                      {monitoredSessions.filter((session) => session.status === 'active').length}
+                    </p>
+                  </div>
+                )}
+                <div className="rounded-xl border border-slate-200 bg-white/95 p-4">
+                  <p className="text-sm text-slate-500">Average Trust</p>
+                  <p className="text-3xl font-bold text-cyan-800 mt-1">{averageTrustScore}%</p>
                 </div>
-                <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
-                  <p className="text-xs text-slate-500">Total Violations</p>
-                  <p className="text-2xl font-semibold text-red-600">{totalViolations}</p>
-                </div>
-              </div>
-
-              <div className="rounded-md border border-slate-200 bg-white mb-4 overflow-x-auto">
-                <div className="px-4 py-3 border-b border-slate-100">
-                  <h3 className="text-sm font-semibold text-slate-800">Student Results</h3>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    Summary for students who have taken this selected test.
-                  </p>
-                </div>
-                <table className="w-full text-sm">
-                  <thead className="bg-slate-50 text-xs text-slate-500 uppercase tracking-wide">
-                    <tr>
-                      <th className="text-left px-4 py-3">Student</th>
-                      <th className="text-left px-4 py-3">USN</th>
-                      <th className="text-left px-4 py-3">Status</th>
-                      <th className="text-left px-4 py-3">Trust Score</th>
-                      <th className="text-left px-4 py-3">Violations</th>
-                      <th className="text-left px-4 py-3">Session Start</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {monitoredSessions.map((session) => (
-                      <tr key={`result-${session.id}`} className="hover:bg-slate-50">
-                        <td className="px-4 py-3 font-medium text-slate-800">{session.studentName}</td>
-                        <td className="px-4 py-3 text-slate-600">{session.studentId}</td>
-                        <td className="px-4 py-3 text-slate-600 capitalize">{session.status}</td>
-                        <td className="px-4 py-3 text-slate-700 font-semibold">{session.trustScore}%</td>
-                        <td className="px-4 py-3 text-red-700 font-semibold">{session.violations}</td>
-                        <td className="px-4 py-3 text-slate-600">{new Date(session.startedAt).toLocaleString()}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                <div className="px-4 py-2 border-t border-slate-100 bg-slate-50 text-xs text-slate-600">
-                  Average trust score: <span className="font-semibold">{averageTrustScore}%</span>
+                <div className="rounded-xl border border-red-200 bg-red-50 p-4">
+                  <p className="text-sm text-red-600">Total Violations</p>
+                  <p className="text-3xl font-bold text-red-700 mt-1">{totalViolations}</p>
                 </div>
               </div>
 
-              <div className="overflow-x-auto border border-slate-200 rounded-md">
-                <table className="w-full text-sm">
-                  <thead className="bg-slate-50 text-xs text-slate-500 uppercase tracking-wide">
-                    <tr>
-                      <th className="text-left px-4 py-3">Students Taken Test</th>
-                      <th className="text-left px-4 py-3">USN</th>
-                      <th className="text-left px-4 py-3">Started</th>
-                      <th className="text-left px-4 py-3">Status</th>
-                      <th className="text-left px-4 py-3">Violations</th>
-                      <th className="text-left px-4 py-3">Open Popup</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {monitoredSessions.map((session) => (
-                      <tr key={session.id} className="hover:bg-slate-50">
-                        <td className="px-4 py-3 font-medium text-slate-800">{session.studentName}</td>
-                        <td className="px-4 py-3 text-slate-600">{session.studentId}</td>
-                        <td className="px-4 py-3 text-slate-600">
-                          {new Date(session.startedAt).toLocaleString()}
-                        </td>
-                        <td className="px-4 py-3 text-slate-600">{session.status}</td>
-                        <td className="px-4 py-3">
-                          <span className="inline-flex items-center gap-1 text-red-700 font-semibold text-xs">
-                            <AlertTriangle size={12} /> {session.violations}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3">
-                          <button
-                            type="button"
-                            onClick={() => setSelectedSession(session)}
-                            className="text-xs font-semibold text-blue-700 border border-blue-200 hover:bg-blue-50 px-2 py-1 rounded-md"
-                          >
-                            View Violations
-                          </button>
-                        </td>
+              {activeSection === 'results' && (
+              <div className="rounded-xl border border-emerald-200 bg-white mb-5 overflow-hidden">
+                <div className="px-4 py-4 border-b border-emerald-100 bg-emerald-50/60">
+                  <h3 className="text-xl font-bold text-emerald-900">Student Results (Correct Answers Focus)</h3>
+                  <p className="text-sm text-emerald-700 mt-1">
+                    Ranking based on answer-key score from submitted responses.
+                  </p>
+                </div>
+
+                <div className="sm:hidden space-y-3 p-3">
+                  {resultSessions.map((session) => (
+                    <div key={`result-card-${session.id}`} className="rounded-xl border border-slate-200 bg-white p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-lg font-bold text-slate-800">{session.studentName}</p>
+                          <p className="text-sm text-slate-500">{session.studentId}</p>
+                        </div>
+                        <span className={`chip text-sm ${getScoreBandMeta(session.scorePercent).badgeClass}`}>
+                          {getScoreBandMeta(session.scorePercent).value}
+                        </span>
+                      </div>
+                      <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+                        <p className="text-slate-600">Correct</p>
+                        <p className="font-semibold text-slate-800 text-right">
+                          {session.correctAnswers ?? '-'} / {session.totalQuestions ?? '-'}
+                        </p>
+                        <p className="text-slate-600">Status</p>
+                        <p className="font-semibold text-slate-800 text-right capitalize">{session.status}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="hidden sm:block overflow-x-auto">
+                  <table className="w-full text-base">
+                    <thead className="bg-emerald-50 text-sm text-emerald-800 uppercase tracking-wide">
+                      <tr>
+                        <th className="text-left px-4 py-3">Student</th>
+                        <th className="text-left px-4 py-3">USN</th>
+                        <th className="text-left px-4 py-3">Correct</th>
+                        <th className="text-left px-4 py-3">Score %</th>
+                        <th className="text-left px-4 py-3">Status</th>
+                        <th className="text-left px-4 py-3">Session Start</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {resultSessions.map((session) => (
+                        <tr key={`result-${session.id}`} className="hover:bg-emerald-50/40">
+                          <td className="px-4 py-3 font-semibold text-slate-900">{session.studentName}</td>
+                          <td className="px-4 py-3 text-slate-700">{session.studentId}</td>
+                          <td className="px-4 py-3 text-slate-700 font-semibold">
+                            {session.correctAnswers ?? '-'} / {session.totalQuestions ?? '-'}
+                          </td>
+                          <td className={`px-4 py-3 font-bold ${getScoreBandMeta(session.scorePercent).textClass}`}>
+                            {getScoreBandMeta(session.scorePercent).value}
+                          </td>
+                          <td className="px-4 py-3 text-slate-700 capitalize">{session.status}</td>
+                          <td className="px-4 py-3 text-slate-600">{new Date(session.startedAt).toLocaleString()}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
+              )}
+
+              {activeSection === 'violations' && (
+              <div className="rounded-xl border border-red-200 bg-white overflow-hidden">
+                <div className="px-4 py-4 border-b border-red-100 bg-red-50/70">
+                  <h3 className="text-xl font-bold text-red-800">Violation Watchlist</h3>
+                  <p className="text-sm text-red-700 mt-1">
+                    Sorted by highest violations so proctoring attention stays on risky sessions.
+                  </p>
+                </div>
+
+                <div className="sm:hidden space-y-3 p-3">
+                  {violationSessions.map((session) => (
+                    <div key={`violation-card-${session.id}`} className="rounded-xl border border-red-200 bg-red-50/40 p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-lg font-bold text-slate-800">{session.studentName}</p>
+                          <p className="text-sm text-slate-500">{session.studentId}</p>
+                        </div>
+                        <span className="chip bg-red-100 text-red-700 text-sm">{session.violations} violations</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedSession(session)}
+                        className="mt-3 w-full text-sm font-semibold text-red-700 border border-red-300 hover:bg-red-100 px-3 py-2 rounded-lg"
+                      >
+                        View Violation Timeline
+                      </button>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="hidden sm:block overflow-x-auto">
+                  <table className="w-full text-base">
+                    <thead className="bg-red-50 text-sm text-red-800 uppercase tracking-wide">
+                      <tr>
+                        <th className="text-left px-4 py-3">Student</th>
+                        <th className="text-left px-4 py-3">USN</th>
+                        <th className="text-left px-4 py-3">Started</th>
+                        <th className="text-left px-4 py-3">Status</th>
+                        <th className="text-left px-4 py-3">Violations</th>
+                        <th className="text-left px-4 py-3">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-red-100">
+                      {violationSessions.map((session) => (
+                        <tr key={`violation-${session.id}`} className="hover:bg-red-50/40">
+                          <td className="px-4 py-3 font-semibold text-slate-900">{session.studentName}</td>
+                          <td className="px-4 py-3 text-slate-700">{session.studentId}</td>
+                          <td className="px-4 py-3 text-slate-600">{new Date(session.startedAt).toLocaleString()}</td>
+                          <td className="px-4 py-3 text-slate-700 capitalize">{session.status}</td>
+                          <td className="px-4 py-3">
+                            <span className="inline-flex items-center gap-1 text-red-700 font-bold text-base">
+                              <AlertTriangle size={15} /> {session.violations}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3">
+                            <button
+                              type="button"
+                              onClick={() => setSelectedSession(session)}
+                              className="text-sm font-semibold text-red-700 border border-red-300 hover:bg-red-100 px-3 py-1.5 rounded-lg"
+                            >
+                              View Violations
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+              )}
             </>
           )}
         </div>
+        )}
+
+        {isTeacherAuthenticated && activeSection === 'profile' && (
+          <div className="panel">
+            <h2 className="text-2xl font-bold text-slate-800 mb-4">Teacher Profile & Test Library</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="rounded-xl border border-slate-200 bg-white/90 p-4">
+                <p className="text-sm text-slate-500">Username</p>
+                <p className="text-xl font-semibold text-slate-900 mt-1">{teacherUsername || 'N/A'}</p>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-white/90 p-4">
+                <p className="text-sm text-slate-500">Account Status</p>
+                <p className="text-xl font-semibold text-emerald-700 mt-1">Authenticated</p>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-white/90 p-4">
+                <p className="text-sm text-slate-500">Tests Available</p>
+                <p className="text-3xl font-bold text-cyan-800 mt-1">{tests.length}</p>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-white/90 p-4">
+                <p className="text-sm text-slate-500">Sessions Monitored</p>
+                <p className="text-3xl font-bold text-slate-800 mt-1">{sessions.length}</p>
+              </div>
+            </div>
+
+            <div className="mt-6 rounded-xl border border-slate-200 bg-white/90 overflow-hidden">
+              <div className="px-4 py-3 border-b border-slate-100 bg-slate-50">
+                <h3 className="text-lg font-semibold text-slate-800">Previously Created Tests</h3>
+                <p className="text-sm text-slate-500 mt-1">
+                  Access all past tests, schedules, and question PDFs from this library.
+                </p>
+              </div>
+
+              {tests.length === 0 ? (
+                <p className="px-4 py-5 text-sm text-slate-500">No tests available yet.</p>
+              ) : (
+                <>
+                  <div className="sm:hidden p-3 space-y-3">
+                    {tests.map((test) => (
+                      <div key={`profile-test-${test.id}`} className="rounded-xl border border-slate-200 p-3">
+                        <p className="text-base font-semibold text-slate-800">{test.title}</p>
+                        <p className="text-sm text-slate-500">Test ID: {test.test_id}</p>
+                        <p className="text-sm text-slate-600 mt-1">
+                          Window: {test.start_time ? new Date(test.start_time).toLocaleString() : '-'} to{' '}
+                          {test.end_time ? new Date(test.end_time).toLocaleString() : '-'}
+                        </p>
+                        <div className="mt-2 flex items-center gap-2">
+                          <span className="chip bg-slate-100 text-slate-700 text-xs">
+                            {test.duration_minutes || '-'} min
+                          </span>
+                          {test.pdf_url && (
+                            <a
+                              href={test.pdf_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-sm font-semibold text-cyan-800 hover:text-cyan-900"
+                            >
+                              Open PDF
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="hidden sm:block overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-slate-50 text-xs text-slate-500 uppercase tracking-wide">
+                        <tr>
+                          <th className="text-left px-4 py-3">Test ID</th>
+                          <th className="text-left px-4 py-3">Title</th>
+                          <th className="text-left px-4 py-3">Duration</th>
+                          <th className="text-left px-4 py-3">Window</th>
+                          <th className="text-left px-4 py-3">Created</th>
+                          <th className="text-left px-4 py-3">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {tests.map((test) => (
+                          <tr key={`profile-test-row-${test.id}`} className="hover:bg-slate-50">
+                            <td className="px-4 py-3 font-semibold text-slate-800">{test.test_id}</td>
+                            <td className="px-4 py-3 text-slate-700">{test.title}</td>
+                            <td className="px-4 py-3 text-slate-700">{test.duration_minutes || '-'} min</td>
+                            <td className="px-4 py-3 text-slate-600">
+                              {test.start_time ? new Date(test.start_time).toLocaleString() : '-'} to{' '}
+                              {test.end_time ? new Date(test.end_time).toLocaleString() : '-'}
+                            </td>
+                            <td className="px-4 py-3 text-slate-600">
+                              {test.created_at ? new Date(test.created_at).toLocaleString() : '-'}
+                            </td>
+                            <td className="px-4 py-3">
+                              {test.pdf_url ? (
+                                <a
+                                  href={test.pdf_url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-sm font-semibold text-cyan-800 hover:text-cyan-900"
+                                >
+                                  Open PDF
+                                </a>
+                              ) : (
+                                <span className="text-xs text-slate-400">No PDF</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {selectedSession && (

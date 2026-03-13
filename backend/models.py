@@ -183,6 +183,7 @@ class Question(Base):
     option_b: Mapped[str | None] = mapped_column(String, nullable=True)
     option_c: Mapped[str | None] = mapped_column(String, nullable=True)
     option_d: Mapped[str | None] = mapped_column(String, nullable=True)
+    correct_option: Mapped[str | None] = mapped_column(String(1), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

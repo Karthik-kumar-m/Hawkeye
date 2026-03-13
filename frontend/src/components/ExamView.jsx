@@ -394,13 +394,13 @@ export default function ExamView() {
   }, [autoSubmitting, handleSubmit, timeLeft])
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="app-shell py-0 px-0">
       {/* Fixed top nav */}
-      <header className="fixed top-0 inset-x-0 z-30 bg-white shadow-sm">
+      <header className="fixed top-0 inset-x-0 z-30 bg-white/90 backdrop-blur border-b border-white/70 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 h-14 flex items-center justify-between">
           {/* Logo */}
           <div className="flex items-center gap-2">
-            <ShieldCheck className="text-blue-700" size={22} />
+            <ShieldCheck className="text-cyan-700" size={22} />
             <span className="font-bold text-slate-800 text-sm tracking-wide">SENTINEL</span>
           </div>
 
@@ -409,7 +409,7 @@ export default function ExamView() {
             {/* Countdown */}
             <span
               className={`font-mono text-sm font-semibold px-2 py-1 rounded ${
-                timeLeft < 300 ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-700'
+                timeLeft < 300 ? 'bg-red-100 text-red-700' : 'bg-cyan-100 text-cyan-800'
               }`}
             >
               ⏱ {formatTime(timeLeft)}
@@ -493,17 +493,17 @@ export default function ExamView() {
       {/* Exam body */}
       <main className="pt-20 pb-16">
         <div className="max-w-4xl mx-auto px-4 py-8">
-          <h2 className="text-2xl font-bold text-slate-800 mb-6">
+          <h2 className="text-3xl font-bold text-white mb-6">
             {testTitle}
           </h2>
 
-          <div className="bg-white shadow-sm rounded-lg p-6 border border-slate-100 mb-6">
+          <div className="panel mb-6">
             <p className="text-sm text-slate-600 mb-2">Test ID: <span className="font-semibold text-slate-800">{testId}</span></p>
             {testPdfUrl ? (
               <iframe
                 src={testPdfUrl}
                 title="Test PDF"
-                className="w-full h-[420px] border border-slate-200 rounded-md"
+                className="w-full h-[420px] border border-slate-200 rounded-xl"
               />
             ) : (
               <p className="text-sm text-slate-500">No PDF found for this test ID.</p>
@@ -514,10 +514,10 @@ export default function ExamView() {
             {QUESTIONS.map((q) => (
               <div
                 key={q.id}
-                className="bg-white shadow-sm rounded-lg p-6 border border-slate-100"
+                className="panel"
               >
                 <p className="font-medium text-slate-800 mb-4">
-                  <span className="text-blue-700 font-bold mr-2">Q{q.id}.</span>
+                  <span className="text-cyan-700 font-bold mr-2">Q{q.id}.</span>
                   {q.text}
                 </p>
                 <div className="space-y-2">
@@ -547,7 +547,7 @@ export default function ExamView() {
           <div className="mt-8 flex justify-end">
             <button
               onClick={handleSubmit}
-              className="bg-blue-700 hover:bg-blue-800 text-white font-semibold px-8 py-3 rounded-md transition-colors"
+              className="primary-btn px-8 py-3"
             >
               SUBMIT EXAM
             </button>

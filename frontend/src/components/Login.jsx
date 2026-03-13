@@ -204,22 +204,23 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-900 flex items-center justify-center px-4">
-      <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-8">
+    <div className="app-shell flex items-center justify-center">
+      <div className="panel animate-rise-in max-w-md w-full">
         {/* Header */}
         <div className="flex flex-col items-center mb-8">
-          <ShieldCheck className="text-blue-700 mb-3" size={48} strokeWidth={1.5} />
-          <h1 className="text-xl font-bold text-slate-800 text-center tracking-wide">
+          <ShieldCheck className="text-cyan-700 mb-3" size={48} strokeWidth={1.5} />
+          <span className="chip bg-cyan-100 text-cyan-800 mb-3">Integrity First</span>
+          <h1 className="text-2xl font-bold text-slate-800 text-center tracking-tight">
             SENTINEL: Integrity-First Exam Platform
           </h1>
         </div>
 
-        <div className="mb-6 grid grid-cols-2 rounded-md border border-slate-200 p-1 bg-slate-50">
+        <div className="mb-6 grid grid-cols-2 rounded-xl border border-slate-200 p-1 bg-slate-50/90">
           <button
             type="button"
             onClick={() => setMode('student')}
-            className={`rounded px-3 py-2 text-sm font-semibold transition-colors ${
-              mode === 'student' ? 'bg-blue-700 text-white' : 'text-slate-600 hover:bg-slate-100'
+            className={`rounded-lg px-3 py-2 text-sm font-semibold transition-colors ${
+              mode === 'student' ? 'bg-cyan-700 text-white' : 'text-slate-600 hover:bg-white'
             }`}
           >
             Student Login
@@ -227,8 +228,8 @@ export default function Login() {
           <button
             type="button"
             onClick={() => setMode('teacher')}
-            className={`rounded px-3 py-2 text-sm font-semibold transition-colors ${
-              mode === 'teacher' ? 'bg-blue-700 text-white' : 'text-slate-600 hover:bg-slate-100'
+            className={`rounded-lg px-3 py-2 text-sm font-semibold transition-colors ${
+              mode === 'teacher' ? 'bg-cyan-700 text-white' : 'text-slate-600 hover:bg-white'
             }`}
           >
             Teacher Login
@@ -247,7 +248,7 @@ export default function Login() {
               onChange={(e) => setUsername(e.target.value)}
               placeholder={mode === 'student' ? 'e.g. 4JN24CS065' : 'e.g. teacher01'}
               required
-              className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="input-field"
             />
           </div>
 
@@ -265,14 +266,14 @@ export default function Login() {
                   : 'Enter teacher password'
               }
               required
-              className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="input-field"
             />
           </div>
 
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-blue-700 hover:bg-blue-800 text-white font-semibold py-2.5 rounded-md transition-colors"
+            className="primary-btn w-full"
           >
             {loading
               ? 'AUTHENTICATING...'
@@ -287,7 +288,7 @@ export default function Login() {
             <button
               type="button"
               onClick={() => setIsRegisterMode((value) => !value)}
-              className="w-full text-xs text-blue-700 hover:text-blue-800"
+              className="w-full text-xs text-cyan-800 hover:text-cyan-900"
             >
               {isRegisterMode ? 'Have account? Switch to login' : 'New teacher? Create account'}
             </button>
@@ -323,7 +324,7 @@ export default function Login() {
 
         {/* Schedule countdown panel */}
         {mode === 'student' && scheduleStatus !== 'idle' && (
-          <div className="mt-4 rounded-md border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
+          <div className="mt-4 rounded-xl border border-slate-200 bg-white/80 px-4 py-3 text-sm animate-rise-in">
             {scheduleStatus === 'loading' && (
               <div className="flex items-center gap-2 text-slate-400">
                 <Loader2 size={14} className="animate-spin" />

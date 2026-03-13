@@ -1,8 +1,12 @@
 """Session APIs used by student and teacher monitoring portals."""
 import uuid
+import io
+import re
 from datetime import datetime, timezone
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
+from pypdf import PdfReader
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,6 +15,7 @@ try:
     from ..models import (
         ExamSession,
         ExamTest,
+        Question,
         StudentAccount,
         TestStudentAccess,
         TrackingEvent,
@@ -28,6 +33,7 @@ except ImportError:
     from models import (
         ExamSession,
         ExamTest,
+        Question,
         StudentAccount,
         TestStudentAccess,
         TrackingEvent,
@@ -43,6 +49,13 @@ except ImportError:
 
 
 router = APIRouter(prefix="/api/v1/sessions", tags=["sessions"])
+
+QUESTION_LINE_PATTERN = re.compile(r"^(\d{1,3})[\).:-]\s+(.+)$")
+OPTION_LINE_PATTERN = re.compile(r"^[\(\[]?([A-D])[\)\].:-]\s+(.+)$", re.IGNORECASE)
+ANSWER_LINE_PATTERN = re.compile(
+    r"^(?:answer|ans|correct\s*answer)\s*[:\-]\s*([A-D])\b",
+    re.IGNORECASE,
+)
 
 
 def _to_utc(value: datetime | None) -> datetime | None:
@@ -64,6 +77,165 @@ def _unpack_username(username: str) -> tuple[str, str, str | None]:
     if len(chunks) == 2:
         return chunks[0], chunks[1], None
     return username, username, None
+
+
+def _normalize_answer_option(selected_value: object, option_map: dict[str, str | None]) -> str | None:
+    """Normalize submitted answer into option key A/B/C/D when possible."""
+    if selected_value is None:
+        return None
+
+    raw = str(selected_value).strip()
+    if not raw:
+        return None
+
+    upper = raw.upper()
+    if upper in {"A", "B", "C", "D"}:
+        return upper
+
+    for key, text in option_map.items():
+        if text and raw.casefold() == text.strip().casefold():
+            return key
+
+    return None
+
+
+def _parse_questions_from_pdf_url(pdf_url: str) -> list[dict]:
+    """Parse question/option/answer blocks from uploaded test PDF for legacy tests."""
+    relative = pdf_url.lstrip("/")
+    pdf_path = Path(__file__).resolve().parent.parent / relative
+    if not pdf_path.exists() or not pdf_path.is_file():
+        return []
+
+    try:
+        with pdf_path.open("rb") as f:
+            content = f.read()
+        reader = PdfReader(io.BytesIO(content))
+        raw_text = "\n".join((page.extract_text() or "") for page in reader.pages)
+    except Exception:
+        return []
+
+    lines = [line.strip() for line in raw_text.splitlines() if line.strip()]
+    parsed: list[dict] = []
+    current: dict | None = None
+
+    for line in lines:
+        question_match = QUESTION_LINE_PATTERN.match(line)
+        if question_match:
+            if current is not None:
+                parsed.append(current)
+            current = {
+                "question_number": int(question_match.group(1)),
+                "option_a": None,
+                "option_b": None,
+                "option_c": None,
+                "option_d": None,
+                "correct_option": None,
+            }
+            continue
+
+        option_match = OPTION_LINE_PATTERN.match(line)
+        if option_match and current is not None:
+            current[f"option_{option_match.group(1).lower()}"] = option_match.group(2).strip()
+            continue
+
+        answer_match = ANSWER_LINE_PATTERN.match(line)
+        if answer_match and current is not None:
+            current["correct_option"] = answer_match.group(1).upper()
+
+    if current is not None:
+        parsed.append(current)
+
+    return parsed
+
+
+async def _compute_session_score(
+    db: AsyncSession,
+    exam_session: ExamSession,
+    test_id_code: str | None,
+) -> tuple[int | None, int | None, float | None]:
+    """Return (correct_answers, total_questions, score_percent) for a session."""
+    if not test_id_code:
+        return None, None, None
+
+    test_result = await db.execute(
+        select(ExamTest).where(func.upper(ExamTest.test_id) == test_id_code.upper())
+    )
+    test_obj = test_result.scalar_one_or_none()
+    if test_obj is None:
+        return None, None, None
+
+    submission_result = await db.execute(
+        select(TrackingEvent)
+        .where(
+            TrackingEvent.session_id == exam_session.id,
+            TrackingEvent.event_type == "EXAM_SUBMITTED",
+        )
+        .order_by(TrackingEvent.timestamp.desc())
+        .limit(1)
+    )
+    submission = submission_result.scalar_one_or_none()
+    answers_payload = (submission.payload or {}).get("answers", {}) if submission else {}
+    if not isinstance(answers_payload, dict):
+        answers_payload = {}
+
+    questions_result = await db.execute(
+        select(Question)
+        .where(Question.test_id == test_obj.id)
+        .order_by(Question.question_number.asc())
+    )
+    questions = questions_result.scalars().all()
+
+    gradable_questions = [
+        question
+        for question in questions
+        if (question.correct_option or "").upper() in {"A", "B", "C", "D"}
+    ]
+    total_questions = len(gradable_questions)
+    if total_questions == 0:
+        parsed_questions = _parse_questions_from_pdf_url(test_obj.pdf_url)
+        gradable_parsed = [
+            question
+            for question in parsed_questions
+            if (question.get("correct_option") or "") in {"A", "B", "C", "D"}
+        ]
+        if not gradable_parsed:
+            return None, None, None
+
+        correct_answers = 0
+        for question in gradable_parsed:
+            submitted = answers_payload.get(str(question.get("question_number")))
+            normalized = _normalize_answer_option(
+                submitted,
+                {
+                    "A": question.get("option_a"),
+                    "B": question.get("option_b"),
+                    "C": question.get("option_c"),
+                    "D": question.get("option_d"),
+                },
+            )
+            if normalized and normalized == (question.get("correct_option") or ""):
+                correct_answers += 1
+
+        score_percent = round((correct_answers / len(gradable_parsed)) * 100, 1)
+        return correct_answers, len(gradable_parsed), score_percent
+
+    correct_answers = 0
+    for question in gradable_questions:
+        submitted = answers_payload.get(str(question.question_number))
+        normalized = _normalize_answer_option(
+            submitted,
+            {
+                "A": question.option_a,
+                "B": question.option_b,
+                "C": question.option_c,
+                "D": question.option_d,
+            },
+        )
+        if normalized and normalized == (question.correct_option or "").upper():
+            correct_answers += 1
+
+    score_percent = round((correct_answers / total_questions) * 100, 1)
+    return correct_answers, total_questions, score_percent
 
 
 @router.post("/start", response_model=SessionStartResponse)
@@ -155,6 +327,11 @@ async def list_sessions(db: AsyncSession = Depends(get_db)):
         )
         violations = len(violation_result.scalars().all())
         student_identifier, student_name, test_id = _unpack_username(user.username)
+        correct_answers, total_questions, score_percent = await _compute_session_score(
+            db,
+            exam_session,
+            test_id,
+        )
 
         sessions.append(
             SessionRead(
@@ -166,6 +343,9 @@ async def list_sessions(db: AsyncSession = Depends(get_db)):
                 status=exam_session.status,
                 trust_score=exam_session.trust_score,
                 violations=violations,
+                correct_answers=correct_answers,
+                total_questions=total_questions,
+                score_percent=score_percent,
             )
         )
 

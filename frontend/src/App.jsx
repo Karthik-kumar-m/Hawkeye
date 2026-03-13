@@ -11,8 +11,8 @@ export default function App() {
         <Route path="/" element={<Login />} />
         {/* Student exam screen */}
         <Route path="/exam" element={<ExamView />} />
-        {/* Single staff portal for teacher auth, test management, and violations */}
-        <Route path="/teacher" element={<TeacherPortal />} />
+        {/* Teacher area with section navigation (dashboard/results/violations/profile) */}
+        <Route path="/teacher/*" element={<TeacherPortal />} />
       </Routes>
     </BrowserRouter>
   )
