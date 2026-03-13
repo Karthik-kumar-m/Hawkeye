@@ -9,10 +9,16 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from sqlalchemy import select
 
-from ..database import AsyncSessionLocal
-from ..models import ExamSession, TrackingEvent
-from ..schemas import TrackingEventIn
-from ..ws_manager import manager
+try:
+    from ..database import AsyncSessionLocal
+    from ..models import ExamSession, TrackingEvent
+    from ..schemas import TrackingEventIn
+    from ..ws_manager import manager
+except ImportError:
+    from database import AsyncSessionLocal
+    from models import ExamSession, TrackingEvent
+    from schemas import TrackingEventIn
+    from ws_manager import manager
 
 router = APIRouter()
 

@@ -10,9 +10,14 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..database import get_db
-from ..models import ExternalResource
-from ..schemas import ExternalResourceCreate, ExternalResourceRead
+try:
+    from ..database import get_db
+    from ..models import ExternalResource
+    from ..schemas import ExternalResourceCreate, ExternalResourceRead
+except ImportError:
+    from database import get_db
+    from models import ExternalResource
+    from schemas import ExternalResourceCreate, ExternalResourceRead
 
 router = APIRouter(prefix="/api/v1/resources", tags=["resources"])
 

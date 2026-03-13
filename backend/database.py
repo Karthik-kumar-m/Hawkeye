@@ -5,9 +5,13 @@ the FastAPI / WebSocket event loop.
 """
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.orm import DeclarativeBase
+import os
 
-# Replace with real credentials / use env vars in production
-DATABASE_URL = "postgresql+asyncpg://user:pass@localhost/dbname"
+# Uses env var when provided; defaults to local dev database.
+DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    "postgresql+asyncpg://hawkeye_user:hawkeye_pass@localhost/hawkeye_db",
+)
 
 # echo=True logs all SQL – set False in production
 engine = create_async_engine(DATABASE_URL, echo=True)
