@@ -1,16 +1,16 @@
 """
-Async database setup using SQLAlchemy 2.0 with asyncpg driver.
-The async engine and session factory ensure database calls never block
-the FastAPI / WebSocket event loop.
+Async database setup using SQLAlchemy 2.0.
+Defaults to SQLite for zero-setup local development, while still supporting
+PostgreSQL via DATABASE_URL override.
 """
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.orm import DeclarativeBase
 import os
 
-# Uses env var when provided; defaults to local dev database.
+# Uses env var when provided; defaults to local SQLite database.
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
-    "postgresql+asyncpg://hawkeye_user:hawkeye_pass@localhost/hawkeye_db",
+    "sqlite+aiosqlite:///./hawkeye.db",
 )
 
 # echo=True logs all SQL – set False in production

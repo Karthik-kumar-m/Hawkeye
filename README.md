@@ -1,6 +1,6 @@
 # Hawkeye — Integrity-First Exam Monitor
 
-A real-time exam monitoring and proctoring platform that tracks student behavior during online exams, detects violations (tab switches, right-clicks), and provides a live admin dashboard for auditors.
+A real-time exam monitoring and proctoring platform that tracks student behavior during online exams, detects violations (tab switches, right-clicks), and provides a unified teacher console for test management and live monitoring.
 
 ## Tech Stack
 
@@ -72,9 +72,8 @@ The frontend will be available at **http://localhost:5173**.
 | URL | Description |
 |-----|-------------|
 | `http://localhost:5173` | Student login |
-| `http://localhost:5173/admin` | Admin / auditor login |
+| `http://localhost:5173/teacher` | Teacher console (auth, test setup, and violations monitor) |
 | `http://localhost:5173/exam` | Student exam interface (after login) |
-| `http://localhost:5173/dashboard` | Real-time auditor dashboard (after admin login) |
 
 ### Student Flow
 
@@ -83,11 +82,13 @@ The frontend will be available at **http://localhost:5173**.
 3. Violations (switching tabs, right-clicking) are detected and reduce the trust score.
 4. Submit the exam when finished.
 
-### Admin Flow
+### Teacher Flow
 
-1. Open `http://localhost:5173/admin` and log in.
-2. View all active exam sessions and their trust scores in real time.
-3. Manage external resources that students are allowed to access during the exam.
+1. Open `http://localhost:5173/teacher` and log in.
+2. Upload tests, set only duration, and preview USN roster parsing.
+3. Test window starts automatically at upload time and ends after the selected duration.
+4. Monitor violations in real time for selected pre-created tests.
+5. Manage external resources that students are allowed to access during the exam.
 
 ## Project Structure
 
@@ -100,8 +101,7 @@ Hawkeye/
 │   │   └── components/
 │   │       ├── Login.jsx           # Student login
 │   │       ├── ExamView.jsx        # Exam interface with violation tracking
-│   │       ├── AdminLogin.jsx      # Admin login
-│   │       ├── AuditorDashboard.jsx # Real-time monitoring dashboard
+│   │       ├── TeacherPortal.jsx   # Teacher auth, upload, and live monitoring
 │   │       └── ResourceModal.jsx   # Resource management modal
 │   ├── package.json
 │   ├── vite.config.js
@@ -137,7 +137,7 @@ Hawkeye/
 | Path | Description |
 |------|-------------|
 | `/ws/student/{session_id}` | Student sends exam events (violations, navigation, submission) |
-| `/ws/admin/{admin_id}` | Admin receives real-time broadcasts of all student events |
+| `/ws/admin/{monitor_id}` | Teacher console receives real-time broadcasts of student events |
 
 ## Available Scripts
 
@@ -155,6 +155,26 @@ npm run lint     # Run ESLint
 ```bash
 uvicorn main:app --reload --port 8000   # Development with auto-reload
 uvicorn main:app --port 8000            # Production
+```
+
+Safe restart commands (without a script):
+
+```bash
+# From project root, kill any process on 8000 and start backend again
+lsof -ti :8000 | xargs -r kill -9
+cd backend
+source ../.venv/bin/activate
+uvicorn main:app --reload --port 8000
+```
+
+Use a custom port:
+
+```bash
+PORT=8001
+lsof -ti :$PORT | xargs -r kill -9
+cd backend
+source ../.venv/bin/activate
+uvicorn main:app --reload --port $PORT
 ```
 
 ## License

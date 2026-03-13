@@ -1,6 +1,6 @@
 """
 WebSocket routes:
-  /ws/admin/{admin_id}   – admin receives broadcast events
+    /ws/admin/{monitor_id}   – teacher monitor receives broadcast events
   /ws/student/{session_id} – student sends tracking events
 """
 import json
@@ -27,13 +27,14 @@ router = APIRouter()
 @router.websocket("/ws/admin/{admin_id}")
 async def ws_admin(websocket: WebSocket, admin_id: str):
     """
-    Admin connection: just stays open and receives JSON payloads
-    broadcast by the student handler whenever an event is processed.
+    Teacher monitor connection on the legacy /ws/admin path.
+    This stays open and receives JSON payloads broadcast by the student
+    handler whenever an event is processed.
     """
     await manager.connect(websocket, role="admin", user_id=admin_id)
     try:
         while True:
-            # Keep the connection alive; admins are passive receivers
+            # Keep the connection alive; monitor clients are passive receivers.
             await websocket.receive_text()
     except WebSocketDisconnect:
         manager.disconnect(role="admin", user_id=admin_id)
@@ -44,7 +45,7 @@ async def ws_student(websocket: WebSocket, session_id: str):
     """
     Student connection: receives JSON events, persists them to the DB,
     optionally decrements trust_score on VIOLATION_DETECTED, then
-    broadcasts the enriched event to all admin connections.
+    broadcasts the enriched event to all monitor connections.
 
     DB operations use a fresh async session per message so the session
     lifetime is as short as possible.
@@ -112,7 +113,7 @@ async def ws_student(websocket: WebSocket, session_id: str):
                 await db.commit()
                 await db.refresh(event)
 
-            # 3. Build broadcast payload and fan-out to admins
+            # 3. Build broadcast payload and fan-out to monitor clients.
             broadcast_payload = {
                 "session_id": str(session_uuid),
                 "event_id": str(event.id),

@@ -1,13 +1,21 @@
-"""Session APIs used by student and admin portals."""
+"""Session APIs used by student and teacher monitoring portals."""
 import uuid
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 try:
     from ..database import get_db
-    from ..models import ExamSession, TrackingEvent, User
+    from ..models import (
+        ExamSession,
+        ExamTest,
+        StudentAccount,
+        TestStudentAccess,
+        TrackingEvent,
+        User,
+    )
     from ..schemas import (
         SessionCompleteResponse,
         SessionEventRead,
@@ -17,7 +25,14 @@ try:
     )
 except ImportError:
     from database import get_db
-    from models import ExamSession, TrackingEvent, User
+    from models import (
+        ExamSession,
+        ExamTest,
+        StudentAccount,
+        TestStudentAccess,
+        TrackingEvent,
+        User,
+    )
     from schemas import (
         SessionCompleteResponse,
         SessionEventRead,
@@ -30,20 +45,65 @@ except ImportError:
 router = APIRouter(prefix="/api/v1/sessions", tags=["sessions"])
 
 
-def _pack_username(student_identifier: str, student_name: str) -> str:
-    return f"{student_identifier}::{student_name}"
+def _to_utc(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
 
 
-def _unpack_username(username: str) -> tuple[str, str]:
-    if "::" in username:
-        student_identifier, student_name = username.split("::", 1)
-        return student_identifier, student_name
-    return username, username
+def _pack_username(student_identifier: str, student_name: str, test_id: str) -> str:
+    return f"{student_identifier}::{student_name}::{test_id}"
+
+
+def _unpack_username(username: str) -> tuple[str, str, str | None]:
+    chunks = username.split("::")
+    if len(chunks) == 3:
+        return chunks[0], chunks[1], chunks[2]
+    if len(chunks) == 2:
+        return chunks[0], chunks[1], None
+    return username, username, None
 
 
 @router.post("/start", response_model=SessionStartResponse)
 async def start_session(body: SessionStartRequest, db: AsyncSession = Depends(get_db)):
-    packed_username = _pack_username(body.student_identifier, body.student_name)
+    normalized_username = body.student_username.strip().upper()
+    normalized_test_id = body.test_id.strip().upper()
+
+    student_result = await db.execute(
+        select(StudentAccount).where(func.upper(StudentAccount.username) == normalized_username)
+    )
+    student = student_result.scalar_one_or_none()
+    if student is None:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    test_result = await db.execute(
+        select(ExamTest).where(func.upper(ExamTest.test_id) == normalized_test_id)
+    )
+    test = test_result.scalar_one_or_none()
+    if test is None:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    access_result = await db.execute(
+        select(TestStudentAccess).where(
+            TestStudentAccess.test_id == test.id,
+            TestStudentAccess.student_id == student.id,
+        )
+    )
+    access = access_result.scalar_one_or_none()
+    if access is None:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    now_utc = datetime.now(timezone.utc)
+    test_start_time = _to_utc(test.start_time)
+    test_end_time = _to_utc(test.end_time)
+    if test_start_time and now_utc < test_start_time:
+        raise HTTPException(status_code=403, detail="Test has not started yet")
+    if test_end_time and now_utc > test_end_time:
+        raise HTTPException(status_code=403, detail="Test window has ended")
+
+    packed_username = _pack_username(student.username, student.full_name, test.test_id)
 
     user_result = await db.execute(
         select(User).where(User.username == packed_username, User.role == "student")
@@ -62,8 +122,14 @@ async def start_session(body: SessionStartRequest, db: AsyncSession = Depends(ge
 
     return SessionStartResponse(
         session_id=session.id,
-        student_name=body.student_name,
-        student_identifier=body.student_identifier,
+        student_name=student.full_name,
+        student_identifier=student.username,
+        test_id=test.test_id,
+        test_title=test.title,
+        test_pdf_url=test.pdf_url,
+        test_start_time=test_start_time,
+        test_end_time=test_end_time,
+        duration_minutes=test.duration_minutes or 45,
         status=session.status,
         trust_score=session.trust_score,
         started_at=session.start_time,
@@ -88,13 +154,14 @@ async def list_sessions(db: AsyncSession = Depends(get_db)):
             )
         )
         violations = len(violation_result.scalars().all())
-        student_identifier, student_name = _unpack_username(user.username)
+        student_identifier, student_name, test_id = _unpack_username(user.username)
 
         sessions.append(
             SessionRead(
                 id=exam_session.id,
                 student_name=student_name,
                 student_identifier=student_identifier,
+                test_id=test_id,
                 started_at=exam_session.start_time,
                 status=exam_session.status,
                 trust_score=exam_session.trust_score,

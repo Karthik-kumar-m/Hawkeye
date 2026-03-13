@@ -57,12 +57,19 @@ export default function ExamView() {
   const studentName = sessionStorage.getItem('studentName') || 'Student'
   const studentId = sessionStorage.getItem('studentId') || ''
   const sessionId = sessionStorage.getItem('sessionId') || ''
+  const testId = sessionStorage.getItem('testId') || ''
+  const testTitle = sessionStorage.getItem('testTitle') || 'Assigned Test'
+  const rawTestPdfUrl = sessionStorage.getItem('testPdfUrl') || ''
+  const testPdfUrl = rawTestPdfUrl.startsWith('http') ? rawTestPdfUrl : `${window.location.origin}${rawTestPdfUrl}`
+  const parsedDuration = Number(sessionStorage.getItem('testDurationMinutes') || 45)
+  const durationMinutes = Number.isFinite(parsedDuration) && parsedDuration > 0 ? parsedDuration : 45
 
   const [answers, setAnswers] = useState({})
-  const [timeLeft, setTimeLeft] = useState(45 * 60) // 45-minute exam
+  const [timeLeft, setTimeLeft] = useState(durationMinutes * 60)
   const [toast, setToast] = useState(null)
   const [resourcesOpen, setResourcesOpen] = useState(false)
   const [resources, setResources] = useState([])
+  const [autoSubmitting, setAutoSubmitting] = useState(false)
 
   const wsRef = useRef(null)
   const blurStartRef = useRef(null)
@@ -79,10 +86,10 @@ export default function ExamView() {
   }, [])
 
   useEffect(() => {
-    if (!sessionId || !studentId) {
+    if (!sessionId || !studentId || !testId) {
       navigate('/')
     }
-  }, [navigate, sessionId, studentId])
+  }, [navigate, sessionId, studentId, testId])
 
   // --- WebSocket setup -------------------------------------------------------
   useEffect(() => {
@@ -98,6 +105,7 @@ export default function ExamView() {
           payload: {
             student_name: studentName,
             student_identifier: studentId,
+            test_id: testId,
           },
         })
       )
@@ -105,7 +113,7 @@ export default function ExamView() {
 
     ws.onerror = () => console.warn('WS connection failed – backend may be offline')
     return () => ws.close()
-  }, [sessionId, studentId, studentName])
+  }, [sessionId, studentId, studentName, testId])
 
   /** Send a JSON event over the WebSocket if the socket is open */
   const emitEvent = useCallback((eventType, payload = {}) => {
@@ -274,7 +282,7 @@ export default function ExamView() {
   }
 
   // --- Submit ----------------------------------------------------------------
-  const handleSubmit = async () => {
+  const handleSubmit = useCallback(async () => {
     emitEvent('EXAM_SUBMITTED', { answers })
     if (sessionId) {
       try {
@@ -285,7 +293,15 @@ export default function ExamView() {
     }
     sessionStorage.removeItem('sessionId')
     navigate('/')
-  }
+  }, [answers, emitEvent, navigate, sessionId])
+
+  useEffect(() => {
+    if (timeLeft !== 0 || autoSubmitting) return
+
+    setAutoSubmitting(true)
+    showToast('Time is up. Auto-submitting your exam...')
+    handleSubmit()
+  }, [autoSubmitting, handleSubmit, timeLeft])
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -362,8 +378,21 @@ export default function ExamView() {
       <main className="pt-20 pb-16">
         <div className="max-w-4xl mx-auto px-4 py-8">
           <h2 className="text-2xl font-bold text-slate-800 mb-6">
-            General Knowledge Assessment
+            {testTitle}
           </h2>
+
+          <div className="bg-white shadow-sm rounded-lg p-6 border border-slate-100 mb-6">
+            <p className="text-sm text-slate-600 mb-2">Test ID: <span className="font-semibold text-slate-800">{testId}</span></p>
+            {testPdfUrl ? (
+              <iframe
+                src={testPdfUrl}
+                title="Test PDF"
+                className="w-full h-[420px] border border-slate-200 rounded-md"
+              />
+            ) : (
+              <p className="text-sm text-slate-500">No PDF found for this test ID.</p>
+            )}
+          </div>
 
           <div className="space-y-5">
             {QUESTIONS.map((q) => (

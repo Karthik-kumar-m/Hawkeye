@@ -34,7 +34,7 @@ class ExternalResourceRead(ExternalResourceBase):
 
 class UserBase(BaseModel):
     username: str
-    role: str  # 'admin' | 'student'
+    role: str  # 'admin' (monitor channel) | 'student'
 
 
 class UserCreate(UserBase):
@@ -86,14 +86,20 @@ class TrackingEventRead(BaseModel):
 # ---------------------------------------------------------------------------
 
 class SessionStartRequest(BaseModel):
-    student_name: str
-    student_identifier: str
+    student_username: str
+    test_id: str
 
 
 class SessionStartResponse(BaseModel):
     session_id: uuid.UUID
     student_name: str
     student_identifier: str
+    test_id: str
+    test_title: str
+    test_pdf_url: str
+    test_start_time: Optional[datetime] = None
+    test_end_time: Optional[datetime] = None
+    duration_minutes: int = 45
     status: str
     trust_score: int
     started_at: datetime
@@ -103,6 +109,7 @@ class SessionRead(BaseModel):
     id: uuid.UUID
     student_name: str
     student_identifier: str
+    test_id: Optional[str] = None
     started_at: datetime
     status: str
     trust_score: int
@@ -122,3 +129,76 @@ class SessionEventRead(BaseModel):
     timestamp: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class TeacherAuthRequest(BaseModel):
+    username: str
+    password: str
+
+
+class AuthResponse(BaseModel):
+    user_id: uuid.UUID
+    username: str
+
+
+class StudentRegisterRequest(BaseModel):
+    full_name: str
+    username: str
+    password: str
+
+
+class StudentLoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class StudentLoginResponse(BaseModel):
+    user_id: uuid.UUID
+    username: str
+    full_name: str
+
+
+class ExamTestRead(BaseModel):
+    id: uuid.UUID
+    test_id: str
+    title: str
+    pdf_url: str
+    start_time: Optional[datetime] = None
+    end_time: Optional[datetime] = None
+    duration_minutes: Optional[int] = None
+    teacher_id: uuid.UUID
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class UsnPreviewResponse(BaseModel):
+    parsed_usns: list[str]
+    rejected_tokens: list[str]
+    total_candidates: int
+    accepted_count: int
+
+
+class QuestionPreviewItem(BaseModel):
+    question_number: int
+    question_text: str
+    option_a: Optional[str] = None
+    option_b: Optional[str] = None
+    option_c: Optional[str] = None
+    option_d: Optional[str] = None
+    correct_option: Optional[str] = None
+
+
+class QuestionPreviewResponse(BaseModel):
+    parsed_questions: list[QuestionPreviewItem]
+    total_detected_questions: int
+    lines_scanned: int
+    ignored_lines_sample: list[str]
+
+
+class TestScheduleResponse(BaseModel):
+    test_id: str
+    title: str
+    start_time: Optional[datetime] = None
+    end_time: Optional[datetime] = None
+    duration_minutes: Optional[int] = None

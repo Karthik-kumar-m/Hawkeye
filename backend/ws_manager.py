@@ -3,9 +3,9 @@ WebSocket Connection Manager.
 
 Maintains two buckets of active connections:
   - students: keyed by session_id
-  - admins:   keyed by admin_id
+    - admins:   keyed by monitor_id (legacy naming)
 
-broadcast_to_admins() fans out a message dict to every connected admin.
+broadcast_to_admins() fans out a message dict to every connected monitor client.
 """
 import asyncio
 from typing import Dict
@@ -35,8 +35,8 @@ class ConnectionManager:
 
     async def broadcast_to_admins(self, message: dict) -> None:
         """
-        Fan out *message* as JSON to every currently connected admin.
-        Runs all sends concurrently via asyncio.gather so a slow admin
+        Fan out *message* as JSON to every currently connected monitor client.
+        Runs all sends concurrently via asyncio.gather so a slow monitor
         client doesn't stall the others.
         """
         if not self.admins:

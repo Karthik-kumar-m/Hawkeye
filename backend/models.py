@@ -5,7 +5,7 @@ All primary keys are UUIDs generated server-side.
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSON, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
@@ -23,7 +23,7 @@ class User(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     username: Mapped[str] = mapped_column(String, unique=True, nullable=False)
-    role: Mapped[str] = mapped_column(String, nullable=False)  # 'admin' or 'student'
+    role: Mapped[str] = mapped_column(String, nullable=False)  # 'admin' (monitor channel) or 'student'
 
     sessions: Mapped[list["ExamSession"]] = relationship(back_populates="student")
 
@@ -74,3 +74,115 @@ class ExternalResource(Base):
     title: Mapped[str] = mapped_column(String, nullable=False)
     url: Mapped[str] = mapped_column(String, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class TeacherAccount(Base):
+    __tablename__ = "teacher_accounts"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    username: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    password_hash: Mapped[str] = mapped_column(String, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    tests: Mapped[list["ExamTest"]] = relationship(back_populates="teacher")
+
+
+class StudentAccount(Base):
+    __tablename__ = "student_accounts"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    username: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    password_hash: Mapped[str] = mapped_column(String, nullable=False)
+    full_name: Mapped[str] = mapped_column(String, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    test_access: Mapped[list["TestStudentAccess"]] = relationship(back_populates="student")
+
+
+class ExamTest(Base):
+    __tablename__ = "exam_tests"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    test_id: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    title: Mapped[str] = mapped_column(String, nullable=False)
+    pdf_url: Mapped[str] = mapped_column(String, nullable=False)
+    start_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    end_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    duration_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    teacher_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("teacher_accounts.id"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    teacher: Mapped["TeacherAccount"] = relationship(back_populates="tests")
+    student_access: Mapped[list["TestStudentAccess"]] = relationship(back_populates="test")
+
+
+class TestStudentAccess(Base):
+    __tablename__ = "test_student_access"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    test_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("exam_tests.id"), nullable=False
+    )
+    student_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("student_accounts.id"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    test: Mapped["ExamTest"] = relationship(back_populates="student_access")
+    student: Mapped["StudentAccount"] = relationship(back_populates="test_access")
+
+
+class AllowedStudent(Base):
+    __tablename__ = "allowed_students"
+    __table_args__ = (UniqueConstraint("test_id", "usn", name="uq_allowed_students_test_usn"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    test_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("exam_tests.id"), nullable=False
+    )
+    usn: Mapped[str] = mapped_column(String, nullable=False)
+    full_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class Question(Base):
+    __tablename__ = "questions"
+    __table_args__ = (UniqueConstraint("test_id", "question_number", name="uq_questions_test_number"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    test_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("exam_tests.id"), nullable=False
+    )
+    question_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    question_text: Mapped[str] = mapped_column(String, nullable=False)
+    option_a: Mapped[str | None] = mapped_column(String, nullable=True)
+    option_b: Mapped[str | None] = mapped_column(String, nullable=True)
+    option_c: Mapped[str | None] = mapped_column(String, nullable=True)
+    option_d: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
