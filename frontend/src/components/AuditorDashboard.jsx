@@ -1,0 +1,313 @@
+import { useState, useEffect, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { ShieldCheck, Settings, LogOut } from 'lucide-react'
+import ResourceModal from './ResourceModal'
+
+const API = 'http://localhost:8000/api/v1/resources'
+
+/**
+ * Circular SVG trust-score ring.
+ * Green > 80 | Yellow 50-80 | Red < 50
+ */
+function TrustRing({ score }) {
+  const r = 18
+  const circ = 2 * Math.PI * r
+  const offset = circ - (score / 100) * circ
+  const color =
+    score > 80 ? '#16a34a' : score >= 50 ? '#d97706' : '#dc2626'
+
+  return (
+    <svg width="48" height="48" viewBox="0 0 48 48">
+      {/* Track */}
+      <circle cx="24" cy="24" r={r} fill="none" stroke="#e5e7eb" strokeWidth="4" />
+      {/* Progress */}
+      <circle
+        cx="24"
+        cy="24"
+        r={r}
+        fill="none"
+        stroke={color}
+        strokeWidth="4"
+        strokeDasharray={circ}
+        strokeDashoffset={offset}
+        strokeLinecap="round"
+        transform="rotate(-90 24 24)"
+        style={{ transition: 'stroke-dashoffset 0.5s ease' }}
+      />
+      <text x="24" y="28" textAnchor="middle" fontSize="10" fontWeight="bold" fill={color}>
+        {score}
+      </text>
+    </svg>
+  )
+}
+
+/** Status pill badge */
+function StatusBadge({ status }) {
+  const active = status === 'active'
+  return (
+    <span
+      className={`text-xs font-semibold px-2.5 py-0.5 rounded-full ${
+        active ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'
+      }`}
+    >
+      {active ? 'Active' : 'Completed'}
+    </span>
+  )
+}
+
+/**
+ * AuditorDashboard – Real-time monitoring view for admins.
+ *
+ * WebSocket lifecycle:
+ *   - Connects to /ws/admin/{adminId} on mount.
+ *   - Incoming JSON messages update the matching session row in state
+ *     (trust_score, event counters) without a full page refresh.
+ *   - Disconnects cleanly on unmount.
+ */
+export default function AuditorDashboard() {
+  const navigate = useNavigate()
+  const adminId = sessionStorage.getItem('adminId') || `admin-${Date.now()}`
+
+  // Seed with a couple of demo sessions so the UI is visible without a backend
+  const [sessions, setSessions] = useState([
+    {
+      id: 'demo-1',
+      studentName: 'Alice Johnson',
+      studentId: 'STU-2024-001',
+      startedAt: new Date(Date.now() - 18 * 60 * 1000).toISOString(),
+      status: 'active',
+      trustScore: 100,
+      violations: 0,
+    },
+    {
+      id: 'demo-2',
+      studentName: 'Bob Smith',
+      studentId: 'STU-2024-002',
+      startedAt: new Date(Date.now() - 32 * 60 * 1000).toISOString(),
+      status: 'active',
+      trustScore: 80,
+      violations: 2,
+    },
+    {
+      id: 'demo-3',
+      studentName: 'Carol White',
+      studentId: 'STU-2024-003',
+      startedAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+      status: 'completed',
+      trustScore: 60,
+      violations: 4,
+    },
+  ])
+
+  const [resources, setResources] = useState([])
+  const [showModal, setShowModal] = useState(false)
+  const [selectedSession, setSelectedSession] = useState(null)
+  const wsRef = useRef(null)
+
+  // --- Load resources -------------------------------------------------------
+  useEffect(() => {
+    fetch(API)
+      .then((r) => r.json())
+      .then(setResources)
+      .catch(() => {})
+  }, [])
+
+  // --- WebSocket setup -------------------------------------------------------
+  useEffect(() => {
+    const ws = new WebSocket(`ws://localhost:8000/ws/admin/${adminId}`)
+    wsRef.current = ws
+
+    ws.onmessage = (evt) => {
+      try {
+        const msg = JSON.parse(evt.data)
+        const { session_id, event_type, trust_score } = msg
+
+        setSessions((prev) =>
+          prev.map((s) => {
+            if (s.id !== session_id) return s
+            const isViolation = event_type === 'VIOLATION_DETECTED'
+            return {
+              ...s,
+              trustScore: trust_score !== null ? trust_score : s.trustScore,
+              violations: isViolation ? s.violations + 1 : s.violations,
+            }
+          })
+        )
+      } catch {
+        // ignore malformed messages
+      }
+    }
+
+    ws.onerror = () => console.warn('Admin WS failed – backend may be offline')
+
+    return () => ws.close()
+  }, [adminId])
+
+  // --- Resource CRUD --------------------------------------------------------
+  const handleAddResource = async (title, url) => {
+    const res = await fetch(API + '/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title, url, is_active: true }),
+    })
+    if (res.ok) {
+      const created = await res.json()
+      setResources((prev) => [...prev, created])
+    }
+  }
+
+  const handleDeleteResource = async (id) => {
+    await fetch(`${API}/${id}`, { method: 'DELETE' })
+    setResources((prev) => prev.filter((r) => r.id !== id))
+  }
+
+  // --- Derived metrics -------------------------------------------------------
+  const totalSessions = sessions.length
+  const activeSessions = sessions.filter((s) => s.status === 'active').length
+  const totalViolations = sessions.reduce((sum, s) => sum + s.violations, 0)
+  const totalStudents = new Set(sessions.map((s) => s.studentId)).size
+
+  const handleLogout = () => {
+    sessionStorage.clear()
+    navigate('/admin')
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      {/* Top nav */}
+      <header className="bg-white shadow-sm">
+        <div className="max-w-7xl mx-auto px-4 h-14 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <ShieldCheck className="text-blue-700" size={22} />
+            <span className="font-bold text-slate-800 text-sm tracking-wide">
+              AUDITOR DASHBOARD
+            </span>
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setShowModal(true)}
+              className="flex items-center gap-1.5 text-sm text-blue-700 border border-blue-200 hover:bg-blue-50 px-3 py-1.5 rounded-md transition-colors"
+            >
+              <Settings size={14} />
+              Manage Resources
+            </button>
+            <button
+              onClick={handleLogout}
+              className="flex items-center gap-1.5 text-sm text-slate-600 hover:text-red-600 px-3 py-1.5 rounded-md transition-colors"
+            >
+              <LogOut size={14} />
+              Logout
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <main className="max-w-7xl mx-auto px-4 py-8">
+        {/* Metrics row */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
+          {[
+            { label: 'Total Sessions', value: totalSessions },
+            { label: 'Active Exams', value: activeSessions },
+            { label: 'Total Violations', value: totalViolations },
+            { label: 'Total Students', value: totalStudents },
+          ].map(({ label, value }) => (
+            <div
+              key={label}
+              className="bg-white shadow-sm rounded-lg p-5 border border-slate-100"
+            >
+              <p className="text-xs text-slate-500 uppercase tracking-wide">{label}</p>
+              <p className="text-3xl font-bold text-slate-800 mt-1">{value}</p>
+            </div>
+          ))}
+        </div>
+
+        {/* Session table */}
+        <div className="bg-white shadow-sm rounded-lg border border-slate-100 overflow-hidden">
+          <div className="px-6 py-4 border-b border-slate-100">
+            <h2 className="text-base font-semibold text-slate-800">Exam Sessions</h2>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 text-xs text-slate-500 uppercase tracking-wide">
+                <tr>
+                  <th className="text-left px-6 py-3">Student</th>
+                  <th className="text-left px-6 py-3">Student ID</th>
+                  <th className="text-left px-6 py-3">Started At</th>
+                  <th className="text-left px-6 py-3">Status</th>
+                  <th className="text-left px-6 py-3">Trust Score</th>
+                  <th className="text-left px-6 py-3">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {sessions.map((s) => (
+                  <tr key={s.id} className="hover:bg-slate-50 transition-colors">
+                    <td className="px-6 py-4 font-medium text-slate-800">{s.studentName}</td>
+                    <td className="px-6 py-4 text-slate-500">{s.studentId}</td>
+                    <td className="px-6 py-4 text-slate-500">
+                      {new Date(s.startedAt).toLocaleTimeString()}
+                    </td>
+                    <td className="px-6 py-4">
+                      <StatusBadge status={s.status} />
+                    </td>
+                    <td className="px-6 py-4">
+                      <TrustRing score={s.trustScore} />
+                    </td>
+                    <td className="px-6 py-4">
+                      <button
+                        onClick={() =>
+                          setSelectedSession(selectedSession?.id === s.id ? null : s)
+                        }
+                        className="text-xs font-semibold text-blue-700 border border-blue-200 hover:bg-blue-50 px-3 py-1.5 rounded-md transition-colors"
+                      >
+                        VIEW DETAILS
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Inline session details panel */}
+        {selectedSession && (
+          <div className="mt-6 bg-white shadow-sm rounded-lg border border-slate-100 p-6">
+            <h3 className="text-base font-semibold text-slate-800 mb-3">
+              Session Details – {selectedSession.studentName}
+            </h3>
+            <dl className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
+              <div>
+                <dt className="text-slate-500">Student ID</dt>
+                <dd className="font-medium text-slate-800">{selectedSession.studentId}</dd>
+              </div>
+              <div>
+                <dt className="text-slate-500">Status</dt>
+                <dd>
+                  <StatusBadge status={selectedSession.status} />
+                </dd>
+              </div>
+              <div>
+                <dt className="text-slate-500">Trust Score</dt>
+                <dd className="font-medium text-slate-800">{selectedSession.trustScore}%</dd>
+              </div>
+              <div>
+                <dt className="text-slate-500">Violations</dt>
+                <dd className="font-medium text-red-600">{selectedSession.violations}</dd>
+              </div>
+            </dl>
+          </div>
+        )}
+      </main>
+
+      {/* Resources modal */}
+      {showModal && (
+        <ResourceModal
+          onClose={() => setShowModal(false)}
+          resources={resources}
+          onAdd={handleAddResource}
+          onDelete={handleDeleteResource}
+        />
+      )}
+    </div>
+  )
+}
