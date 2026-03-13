@@ -11,10 +11,10 @@ from fastapi.middleware.cors import CORSMiddleware
 
 try:
     from .database import Base, engine
-    from .routers import resources, ws
+    from .routers import resources, sessions, ws
 except ImportError:
     from database import Base, engine
-    from routers import resources, ws
+    from routers import resources, sessions, ws
 
 
 @asynccontextmanager
@@ -38,6 +38,7 @@ app.add_middleware(
 
 app.include_router(ws.router)
 app.include_router(resources.router)
+app.include_router(sessions.router)
 
 
 @app.get("/health")

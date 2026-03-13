@@ -4,6 +4,7 @@ WebSocket routes:
   /ws/student/{session_id} – student sends tracking events
 """
 import json
+import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
@@ -48,6 +49,14 @@ async def ws_student(websocket: WebSocket, session_id: str):
     DB operations use a fresh async session per message so the session
     lifetime is as short as possible.
     """
+    try:
+        session_uuid = uuid.UUID(session_id)
+    except ValueError:
+        await websocket.accept()
+        await websocket.send_json({"error": "Invalid session id"})
+        await websocket.close(code=1008)
+        return
+
     await manager.connect(websocket, role="student", user_id=session_id)
     try:
         while True:
@@ -65,7 +74,7 @@ async def ws_student(websocket: WebSocket, session_id: str):
             async with AsyncSessionLocal() as db:
                 # 1. Persist the tracking event
                 event = TrackingEvent(
-                    session_id=session_id,
+                    session_id=session_uuid,
                     event_type=event_in.event_type,
                     payload=event_in.payload,
                     timestamp=datetime.now(timezone.utc),
@@ -75,7 +84,7 @@ async def ws_student(websocket: WebSocket, session_id: str):
                 # 2. If it's a violation, decrement trust_score
                 if event_in.event_type == "VIOLATION_DETECTED":
                     result = await db.execute(
-                        select(ExamSession).where(ExamSession.id == session_id)
+                        select(ExamSession).where(ExamSession.id == session_uuid)
                     )
                     session_obj = result.scalar_one_or_none()
                     if session_obj:
@@ -83,17 +92,32 @@ async def ws_student(websocket: WebSocket, session_id: str):
                         trust_score = session_obj.trust_score
                     else:
                         trust_score = None
+                    session_status = session_obj.status if session_obj else None
+                elif event_in.event_type == "EXAM_SUBMITTED":
+                    result = await db.execute(
+                        select(ExamSession).where(ExamSession.id == session_uuid)
+                    )
+                    session_obj = result.scalar_one_or_none()
+                    if session_obj:
+                        session_obj.status = "completed"
+                        trust_score = session_obj.trust_score
+                        session_status = session_obj.status
+                    else:
+                        trust_score = None
+                        session_status = None
                 else:
                     trust_score = None
+                    session_status = None
 
                 await db.commit()
 
             # 3. Build broadcast payload and fan-out to admins
             broadcast_payload = {
-                "session_id": session_id,
+                "session_id": str(session_uuid),
                 "event_type": event_in.event_type,
                 "payload": event_in.payload,
                 "trust_score": trust_score,
+                "session_status": session_status,
             }
             await manager.broadcast_to_admins(broadcast_payload)
 

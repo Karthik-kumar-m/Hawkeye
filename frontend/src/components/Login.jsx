@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { ShieldCheck } from 'lucide-react'
 
+const API_BASE = ''
+
 /**
  * Student Login screen.
  * Stores student info in sessionStorage so ExamView can read it,
@@ -10,15 +12,41 @@ import { ShieldCheck } from 'lucide-react'
 export default function Login() {
   const [name, setName] = useState('')
   const [studentId, setStudentId] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
   const navigate = useNavigate()
 
-  const handleStart = (e) => {
+  const handleStart = async (e) => {
     e.preventDefault()
     if (!name.trim() || !studentId.trim()) return
-    // Persist to sessionStorage for use in ExamView
-    sessionStorage.setItem('studentName', name.trim())
-    sessionStorage.setItem('studentId', studentId.trim())
-    navigate('/exam')
+
+    setLoading(true)
+    setError('')
+
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/sessions/start`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          student_name: name.trim(),
+          student_identifier: studentId.trim(),
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error('Unable to start exam session')
+      }
+
+      const data = await response.json()
+      sessionStorage.setItem('studentName', data.student_name)
+      sessionStorage.setItem('studentId', data.student_identifier)
+      sessionStorage.setItem('sessionId', data.session_id)
+      navigate('/exam')
+    } catch {
+      setError('Could not connect to backend. Please ensure the server is running.')
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
@@ -64,10 +92,13 @@ export default function Login() {
 
           <button
             type="submit"
+            disabled={loading}
             className="w-full bg-blue-700 hover:bg-blue-800 text-white font-semibold py-2.5 rounded-md transition-colors"
           >
-            START EXAM
+            {loading ? 'STARTING...' : 'START EXAM'}
           </button>
+
+          {error && <p className="text-xs text-red-600">{error}</p>}
         </form>
 
         <p className="text-center text-xs text-slate-400 mt-6">

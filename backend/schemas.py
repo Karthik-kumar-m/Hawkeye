@@ -79,3 +79,36 @@ class TrackingEventRead(BaseModel):
     timestamp: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+# ---------------------------------------------------------------------------
+# Session orchestration schemas
+# ---------------------------------------------------------------------------
+
+class SessionStartRequest(BaseModel):
+    student_name: str
+    student_identifier: str
+
+
+class SessionStartResponse(BaseModel):
+    session_id: uuid.UUID
+    student_name: str
+    student_identifier: str
+    status: str
+    trust_score: int
+    started_at: datetime
+
+
+class SessionRead(BaseModel):
+    id: uuid.UUID
+    student_name: str
+    student_identifier: str
+    started_at: datetime
+    status: str
+    trust_score: int
+    violations: int
+
+
+class SessionCompleteResponse(BaseModel):
+    session_id: uuid.UUID
+    status: str

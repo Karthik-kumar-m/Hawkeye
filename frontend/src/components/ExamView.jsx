@@ -2,6 +2,9 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ShieldCheck, Link2, ChevronDown } from 'lucide-react'
 
+const API_BASE = ''
+const WS_BASE = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}`
+
 /** Sample exam questions */
 const QUESTIONS = [
   {
@@ -50,7 +53,8 @@ function formatTime(seconds) {
 export default function ExamView() {
   const navigate = useNavigate()
   const studentName = sessionStorage.getItem('studentName') || 'Student'
-  const studentId = sessionStorage.getItem('studentId') || `stu-${Date.now()}`
+  const studentId = sessionStorage.getItem('studentId') || ''
+  const sessionId = sessionStorage.getItem('sessionId') || ''
 
   const [answers, setAnswers] = useState({})
   const [timeLeft, setTimeLeft] = useState(45 * 60) // 45-minute exam
@@ -62,19 +66,40 @@ export default function ExamView() {
 
   // --- Fetch resources from REST API ----------------------------------------
   useEffect(() => {
-    fetch('http://localhost:8000/api/v1/resources/')
+    fetch(`${API_BASE}/api/v1/resources/`)
       .then((r) => r.json())
       .then((data) => setResources(data))
       .catch(() => {})
   }, [])
 
+  useEffect(() => {
+    if (!sessionId || !studentId) {
+      navigate('/')
+    }
+  }, [navigate, sessionId, studentId])
+
   // --- WebSocket setup -------------------------------------------------------
   useEffect(() => {
-    const ws = new WebSocket(`ws://localhost:8000/ws/student/${studentId}`)
+    if (!sessionId) return undefined
+
+    const ws = new WebSocket(`${WS_BASE}/ws/student/${sessionId}`)
     wsRef.current = ws
+
+    ws.onopen = () => {
+      ws.send(
+        JSON.stringify({
+          event_type: 'SESSION_STARTED',
+          payload: {
+            student_name: studentName,
+            student_identifier: studentId,
+          },
+        })
+      )
+    }
+
     ws.onerror = () => console.warn('WS connection failed – backend may be offline')
     return () => ws.close()
-  }, [studentId])
+  }, [sessionId, studentId, studentName])
 
   /** Send a JSON event over the WebSocket if the socket is open */
   const emitEvent = useCallback((eventType, payload = {}) => {
@@ -134,8 +159,16 @@ export default function ExamView() {
   }
 
   // --- Submit ----------------------------------------------------------------
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     emitEvent('EXAM_SUBMITTED', { answers })
+    if (sessionId) {
+      try {
+        await fetch(`${API_BASE}/api/v1/sessions/${sessionId}/complete`, { method: 'POST' })
+      } catch {
+        // Session status will still be set through websocket submit event.
+      }
+    }
+    sessionStorage.removeItem('sessionId')
     navigate('/')
   }
 

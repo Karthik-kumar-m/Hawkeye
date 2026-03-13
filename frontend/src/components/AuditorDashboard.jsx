@@ -3,7 +3,9 @@ import { useNavigate } from 'react-router-dom'
 import { ShieldCheck, Settings, LogOut } from 'lucide-react'
 import ResourceModal from './ResourceModal'
 
-const API = 'http://localhost:8000/api/v1/resources'
+const API = '/api/v1/resources'
+const SESSIONS_API = '/api/v1/sessions/'
+const WS_BASE = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}`
 
 /**
  * Circular SVG trust-score ring.
@@ -68,36 +70,7 @@ export default function AuditorDashboard() {
   const navigate = useNavigate()
   const adminId = sessionStorage.getItem('adminId') || `admin-${Date.now()}`
 
-  // Seed with a couple of demo sessions so the UI is visible without a backend
-  const [sessions, setSessions] = useState([
-    {
-      id: 'demo-1',
-      studentName: 'Alice Johnson',
-      studentId: 'STU-2024-001',
-      startedAt: new Date(Date.now() - 18 * 60 * 1000).toISOString(),
-      status: 'active',
-      trustScore: 100,
-      violations: 0,
-    },
-    {
-      id: 'demo-2',
-      studentName: 'Bob Smith',
-      studentId: 'STU-2024-002',
-      startedAt: new Date(Date.now() - 32 * 60 * 1000).toISOString(),
-      status: 'active',
-      trustScore: 80,
-      violations: 2,
-    },
-    {
-      id: 'demo-3',
-      studentName: 'Carol White',
-      studentId: 'STU-2024-003',
-      startedAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
-      status: 'completed',
-      trustScore: 60,
-      violations: 4,
-    },
-  ])
+  const [sessions, setSessions] = useState([])
 
   const [resources, setResources] = useState([])
   const [showModal, setShowModal] = useState(false)
@@ -112,26 +85,64 @@ export default function AuditorDashboard() {
       .catch(() => {})
   }, [])
 
+  useEffect(() => {
+    fetch(SESSIONS_API)
+      .then((r) => r.json())
+      .then((data) => {
+        const normalized = data.map((item) => ({
+          id: item.id,
+          studentName: item.student_name,
+          studentId: item.student_identifier,
+          startedAt: item.started_at,
+          status: item.status,
+          trustScore: item.trust_score,
+          violations: item.violations,
+        }))
+        setSessions(normalized)
+      })
+      .catch(() => {})
+  }, [])
+
   // --- WebSocket setup -------------------------------------------------------
   useEffect(() => {
-    const ws = new WebSocket(`ws://localhost:8000/ws/admin/${adminId}`)
+    const ws = new WebSocket(`${WS_BASE}/ws/admin/${adminId}`)
     wsRef.current = ws
 
     ws.onmessage = (evt) => {
       try {
         const msg = JSON.parse(evt.data)
-        const { session_id, event_type, trust_score } = msg
+        const { session_id, event_type, trust_score, session_status, payload } = msg
 
         setSessions((prev) =>
-          prev.map((s) => {
-            if (s.id !== session_id) return s
-            const isViolation = event_type === 'VIOLATION_DETECTED'
-            return {
-              ...s,
-              trustScore: trust_score !== null ? trust_score : s.trustScore,
-              violations: isViolation ? s.violations + 1 : s.violations,
+          {
+            const existing = prev.find((s) => s.id === session_id)
+
+            if (!existing) {
+              return [
+                {
+                  id: session_id,
+                  studentName: payload?.student_name || 'Unknown Student',
+                  studentId: payload?.student_identifier || 'N/A',
+                  startedAt: new Date().toISOString(),
+                  status: session_status || 'active',
+                  trustScore: trust_score ?? 100,
+                  violations: event_type === 'VIOLATION_DETECTED' ? 1 : 0,
+                },
+                ...prev,
+              ]
             }
-          })
+
+            return prev.map((s) => {
+              if (s.id !== session_id) return s
+              const isViolation = event_type === 'VIOLATION_DETECTED'
+              return {
+                ...s,
+                status: session_status || s.status,
+                trustScore: trust_score !== null && trust_score !== undefined ? trust_score : s.trustScore,
+                violations: isViolation ? s.violations + 1 : s.violations,
+              }
+            })
+          }
         )
       } catch {
         // ignore malformed messages
@@ -171,6 +182,14 @@ export default function AuditorDashboard() {
     sessionStorage.clear()
     navigate('/admin')
   }
+
+  useEffect(() => {
+    if (!selectedSession) return
+    const refreshed = sessions.find((s) => s.id === selectedSession.id)
+    if (refreshed) {
+      setSelectedSession(refreshed)
+    }
+  }, [selectedSession, sessions])
 
   return (
     <div className="min-h-screen bg-gray-50">
