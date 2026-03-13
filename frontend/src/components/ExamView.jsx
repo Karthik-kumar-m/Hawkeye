@@ -70,12 +70,17 @@ export default function ExamView() {
   const [resourcesOpen, setResourcesOpen] = useState(false)
   const [resources, setResources] = useState([])
   const [autoSubmitting, setAutoSubmitting] = useState(false)
+  const [isFullscreen, setIsFullscreen] = useState(false)
 
   const wsRef = useRef(null)
   const blurStartRef = useRef(null)
   const idleTimerRef = useRef(null)
   const isIdleRef = useRef(false)
   const isWindowSmallRef = useRef(false)
+  // tracks whether fullscreen was ever entered so we only fire violations on exits, not on initial load
+  const wasFullscreenRef = useRef(false)
+  // tracks window-level blur (Win+Tab, Alt+Tab, click-away) separately from tab visibility
+  const windowBlurStartRef = useRef(null)
 
   // --- Fetch resources from REST API ----------------------------------------
   useEffect(() => {
@@ -121,6 +126,17 @@ export default function ExamView() {
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ event_type: eventType, payload }))
     }
+  }, [])
+
+  /** Ask the browser to enter fullscreen on the root element */
+  const enterFullscreen = useCallback(() => {
+    const el = document.documentElement
+    const req =
+      el.requestFullscreen ||
+      el.webkitRequestFullscreen ||
+      el.mozRequestFullScreen ||
+      el.msRequestFullscreen
+    if (req) req.call(el).catch(() => {})
   }, [])
 
   // --- Countdown timer -------------------------------------------------------
@@ -244,6 +260,67 @@ export default function ExamView() {
 
     const activityEvents = ['mousemove', 'keydown', 'mousedown', 'touchstart']
 
+    // --- Window / app focus loss (Win+Tab, Alt+Tab, click-away) -------------
+    // Strategy: two layers so neither can be bypassed.
+    //   Layer 1 – blur/focus events: fire instantly when available.
+    //   Layer 2 – document.hasFocus() poll every 300 ms: catches Win+Tab
+    //             Task-View mode and any case the event doesn't fire.
+    // Both layers share windowBlurStartRef so they never double-count.
+
+    const onFocusLost = () => {
+      if (windowBlurStartRef.current) return // already tracking
+      windowBlurStartRef.current = Date.now()
+      emitEvent('VIOLATION_DETECTED', {
+        reason: 'window_focus_lost',
+        timestamp: new Date().toISOString(),
+      })
+      showToast('⚠️ Window focus lost — leaving the exam is a violation.')
+    }
+
+    const onFocusReturned = () => {
+      if (!windowBlurStartRef.current) return
+      const awaySeconds = Number(((Date.now() - windowBlurStartRef.current) / 1000).toFixed(2))
+      windowBlurStartRef.current = null
+      emitEvent('VIOLATION_DETECTED', {
+        reason: 'window_focus_returned',
+        away_seconds: awaySeconds,
+        timestamp: new Date().toISOString(),
+      })
+    }
+
+    // Layer 1 – instant event listeners
+    const handleWindowBlur = () => onFocusLost()
+    const handleWindowFocus = () => onFocusReturned()
+
+    // Layer 2 – polling fallback (catches Win+Tab Task View and browser quirks)
+    const focusPollInterval = setInterval(() => {
+      if (!document.hasFocus()) {
+        onFocusLost()
+      } else {
+        onFocusReturned()
+      }
+    }, 300)
+
+    // --- Fullscreen enforcement -------------------------------------------
+    const handleFullscreenChange = () => {
+      const isFull = !!(  
+        document.fullscreenElement ||
+        document.webkitFullscreenElement ||
+        document.mozFullScreenElement ||
+        document.msFullscreenElement
+      )
+      setIsFullscreen(isFull)
+      if (!isFull && wasFullscreenRef.current) {
+        emitEvent('VIOLATION_DETECTED', {
+          reason: 'fullscreen_exited',
+          timestamp: new Date().toISOString(),
+        })
+        setToast('⚠️ Exiting fullscreen is a violation. Return immediately.')
+        setTimeout(() => setToast(null), 4000)
+      }
+      wasFullscreenRef.current = isFull
+    }
+
     handleResize()
     resetIdleTimer()
 
@@ -251,6 +328,12 @@ export default function ExamView() {
     document.addEventListener('contextmenu', handleContextMenu)
     document.addEventListener('keydown', handleBlockedKeys)
     window.addEventListener('resize', handleResize)
+    window.addEventListener('blur', handleWindowBlur)
+    window.addEventListener('focus', handleWindowFocus)
+    document.addEventListener('fullscreenchange', handleFullscreenChange)
+    document.addEventListener('webkitfullscreenchange', handleFullscreenChange)
+    document.addEventListener('mozfullscreenchange', handleFullscreenChange)
+    document.addEventListener('msfullscreenchange', handleFullscreenChange)
     activityEvents.forEach((eventName) => {
       document.addEventListener(eventName, resetIdleTimer)
     })
@@ -260,6 +343,13 @@ export default function ExamView() {
       document.removeEventListener('contextmenu', handleContextMenu)
       document.removeEventListener('keydown', handleBlockedKeys)
       window.removeEventListener('resize', handleResize)
+      window.removeEventListener('blur', handleWindowBlur)
+      window.removeEventListener('focus', handleWindowFocus)
+      clearInterval(focusPollInterval)
+      document.removeEventListener('fullscreenchange', handleFullscreenChange)
+      document.removeEventListener('webkitfullscreenchange', handleFullscreenChange)
+      document.removeEventListener('mozfullscreenchange', handleFullscreenChange)
+      document.removeEventListener('msfullscreenchange', handleFullscreenChange)
       activityEvents.forEach((eventName) => {
         document.removeEventListener(eventName, resetIdleTimer)
       })
@@ -356,9 +446,15 @@ export default function ExamView() {
               )}
             </div>
 
-            {/* Secure badge */}
-            <span className="bg-green-100 text-green-700 text-xs font-semibold px-2 py-1 rounded-full">
-              🔒 SECURE
+            {/* Secure / fullscreen badge */}
+            <span
+              className={`text-xs font-semibold px-2 py-1 rounded-full ${
+                isFullscreen
+                  ? 'bg-green-100 text-green-700'
+                  : 'bg-red-100 text-red-700 animate-pulse'
+              }`}
+            >
+              {isFullscreen ? '🔒 SECURE' : '⚠️ FULLSCREEN OFF'}
             </span>
 
             {/* Student name */}
@@ -366,6 +462,26 @@ export default function ExamView() {
           </div>
         </div>
       </header>
+
+      {/* Fullscreen required overlay – blocks exam until student is in fullscreen */}
+      {!isFullscreen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/95 flex items-center justify-center">
+          <div className="bg-white rounded-2xl shadow-2xl p-10 max-w-md w-full mx-4 text-center">
+            <div className="text-5xl mb-4">🔒</div>
+            <h2 className="text-xl font-bold text-slate-800 mb-2">Fullscreen Required</h2>
+            <p className="text-sm text-slate-500 mb-6">
+              This exam must be taken in fullscreen mode. Exiting fullscreen at any point will
+              be logged as a violation and reported to your teacher.
+            </p>
+            <button
+              onClick={enterFullscreen}
+              className="w-full bg-blue-700 hover:bg-blue-800 text-white font-semibold py-3 px-6 rounded-lg transition-colors"
+            >
+              {wasFullscreenRef.current ? 'Return to Fullscreen' : 'Enter Fullscreen to Begin'}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Violation toast */}
       {toast && (
