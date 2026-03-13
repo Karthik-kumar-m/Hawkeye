@@ -110,12 +110,15 @@ async def ws_student(websocket: WebSocket, session_id: str):
                     session_status = None
 
                 await db.commit()
+                await db.refresh(event)
 
             # 3. Build broadcast payload and fan-out to admins
             broadcast_payload = {
                 "session_id": str(session_uuid),
+                "event_id": str(event.id),
                 "event_type": event_in.event_type,
                 "payload": event_in.payload,
+                "event_timestamp": event.timestamp.isoformat() if event.timestamp else None,
                 "trust_score": trust_score,
                 "session_status": session_status,
             }

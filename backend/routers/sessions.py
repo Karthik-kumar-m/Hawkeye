@@ -10,6 +10,7 @@ try:
     from ..models import ExamSession, TrackingEvent, User
     from ..schemas import (
         SessionCompleteResponse,
+        SessionEventRead,
         SessionRead,
         SessionStartRequest,
         SessionStartResponse,
@@ -19,6 +20,7 @@ except ImportError:
     from models import ExamSession, TrackingEvent, User
     from schemas import (
         SessionCompleteResponse,
+        SessionEventRead,
         SessionRead,
         SessionStartRequest,
         SessionStartResponse,
@@ -114,3 +116,19 @@ async def complete_session(session_id: uuid.UUID, db: AsyncSession = Depends(get
     await db.commit()
 
     return SessionCompleteResponse(session_id=session.id, status=session.status)
+
+
+@router.get("/{session_id}/events", response_model=list[SessionEventRead])
+async def list_session_events(session_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    session_result = await db.execute(select(ExamSession).where(ExamSession.id == session_id))
+    session = session_result.scalar_one_or_none()
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    result = await db.execute(
+        select(TrackingEvent)
+        .where(TrackingEvent.session_id == session_id)
+        .order_by(TrackingEvent.timestamp.desc())
+        .limit(200)
+    )
+    return list(result.scalars().all())

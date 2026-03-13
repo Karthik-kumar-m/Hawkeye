@@ -112,3 +112,13 @@ class SessionRead(BaseModel):
 class SessionCompleteResponse(BaseModel):
     session_id: uuid.UUID
     status: str
+
+
+class SessionEventRead(BaseModel):
+    id: uuid.UUID
+    session_id: uuid.UUID
+    event_type: str
+    payload: Optional[dict]
+    timestamp: datetime
+
+    model_config = ConfigDict(from_attributes=True)

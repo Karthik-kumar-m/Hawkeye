@@ -75,7 +75,26 @@ export default function AuditorDashboard() {
   const [resources, setResources] = useState([])
   const [showModal, setShowModal] = useState(false)
   const [selectedSession, setSelectedSession] = useState(null)
+  const [timelineBySession, setTimelineBySession] = useState({})
   const wsRef = useRef(null)
+
+  const upsertTimelineEvent = (sessionId, event) => {
+    setTimelineBySession((prev) => {
+      const current = prev[sessionId] || []
+      const exists = current.some((item) => item.id === event.id)
+      if (exists) return prev
+      const updated = [event, ...current].slice(0, 200)
+      return { ...prev, [sessionId]: updated }
+    })
+  }
+
+  const formatEventLabel = (eventType) => eventType.replaceAll('_', ' ').toLowerCase()
+
+  const formatPayloadValue = (value) => {
+    if (value === null || value === undefined) return '-'
+    if (typeof value === 'object') return JSON.stringify(value)
+    return String(value)
+  }
 
   // --- Load resources -------------------------------------------------------
   useEffect(() => {
@@ -111,7 +130,24 @@ export default function AuditorDashboard() {
     ws.onmessage = (evt) => {
       try {
         const msg = JSON.parse(evt.data)
-        const { session_id, event_type, trust_score, session_status, payload } = msg
+        const {
+          session_id,
+          event_id,
+          event_type,
+          trust_score,
+          session_status,
+          payload,
+          event_timestamp,
+        } = msg
+
+        if (session_id && event_type) {
+          upsertTimelineEvent(session_id, {
+            id: event_id || `${session_id}-${event_type}-${Date.now()}`,
+            eventType: event_type,
+            payload: payload || {},
+            timestamp: event_timestamp || new Date().toISOString(),
+          })
+        }
 
         setSessions((prev) =>
           {
@@ -190,6 +226,30 @@ export default function AuditorDashboard() {
       setSelectedSession(refreshed)
     }
   }, [selectedSession, sessions])
+
+  useEffect(() => {
+    if (!selectedSession) return
+
+    fetch(`${SESSIONS_API}${selectedSession.id}/events`)
+      .then((r) => {
+        if (!r.ok) {
+          throw new Error('Failed to load session timeline')
+        }
+        return r.json()
+      })
+      .then((data) => {
+        const timeline = data.map((item) => ({
+          id: item.id,
+          eventType: item.event_type,
+          payload: item.payload || {},
+          timestamp: item.timestamp,
+        }))
+        setTimelineBySession((prev) => ({ ...prev, [selectedSession.id]: timeline }))
+      })
+      .catch(() => {})
+  }, [selectedSession])
+
+  const selectedTimeline = selectedSession ? timelineBySession[selectedSession.id] || [] : []
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -314,6 +374,45 @@ export default function AuditorDashboard() {
                 <dd className="font-medium text-red-600">{selectedSession.violations}</dd>
               </div>
             </dl>
+
+            <div className="mt-6 border-t border-slate-100 pt-5">
+              <h4 className="text-sm font-semibold text-slate-800 mb-3">Violation Timeline</h4>
+
+              {selectedTimeline.length === 0 ? (
+                <p className="text-sm text-slate-500">No events logged for this session yet.</p>
+              ) : (
+                <div className="max-h-80 overflow-y-auto space-y-3 pr-2">
+                  {selectedTimeline.map((event) => (
+                    <div
+                      key={event.id}
+                      className="rounded-md border border-slate-200 bg-slate-50 p-3"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-700">
+                          {formatEventLabel(event.eventType)}
+                        </p>
+                        <p className="text-xs text-slate-500">
+                          {new Date(event.timestamp).toLocaleString()}
+                        </p>
+                      </div>
+
+                      {Object.keys(event.payload || {}).length === 0 ? (
+                        <p className="text-xs text-slate-500">No payload details.</p>
+                      ) : (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                          {Object.entries(event.payload).map(([key, value]) => (
+                            <div key={key} className="rounded bg-white px-2 py-1 border border-slate-200">
+                              <span className="font-medium text-slate-600">{key}: </span>
+                              <span className="text-slate-800">{formatPayloadValue(value)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         )}
       </main>

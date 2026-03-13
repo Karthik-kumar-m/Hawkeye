@@ -4,6 +4,8 @@ import { ShieldCheck, Link2, ChevronDown } from 'lucide-react'
 
 const API_BASE = ''
 const WS_BASE = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}`
+const IDLE_TIMEOUT_MS = 60 * 1000
+const MIN_WINDOW_RATIO = 0.8
 
 /** Sample exam questions */
 const QUESTIONS = [
@@ -63,6 +65,10 @@ export default function ExamView() {
   const [resources, setResources] = useState([])
 
   const wsRef = useRef(null)
+  const blurStartRef = useRef(null)
+  const idleTimerRef = useRef(null)
+  const isIdleRef = useRef(false)
+  const isWindowSmallRef = useRef(false)
 
   // --- Fetch resources from REST API ----------------------------------------
   useEffect(() => {
@@ -127,8 +133,21 @@ export default function ExamView() {
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.hidden) {
-        emitEvent('VIOLATION_DETECTED', { reason: 'tab_switch' })
-        showToast('⚠️ Tab switch detected – this violation has been logged.')
+        blurStartRef.current = Date.now()
+        emitEvent('VIOLATION_DETECTED', {
+          reason: 'tab_switch_start',
+          timestamp: new Date().toISOString(),
+        })
+        showToast('⚠️ Tab switch detected. Away-time timer started.')
+      } else if (blurStartRef.current) {
+        const awaySeconds = Number(((Date.now() - blurStartRef.current) / 1000).toFixed(2))
+        blurStartRef.current = null
+        emitEvent('VIOLATION_DETECTED', {
+          reason: 'tab_switch_duration',
+          away_seconds: awaySeconds,
+          timestamp: new Date().toISOString(),
+        })
+        showToast(`⚠️ You were away from the exam tab for ${awaySeconds}s.`)
       }
     }
 
@@ -138,11 +157,107 @@ export default function ExamView() {
       showToast('⚠️ Right-click is disabled during the exam.')
     }
 
+    const getWindowAreaRatio = () => {
+      const widthRatio = window.innerWidth / Math.max(window.screen.availWidth || 1, 1)
+      const heightRatio = window.innerHeight / Math.max(window.screen.availHeight || 1, 1)
+      return widthRatio * heightRatio
+    }
+
+    const handleResize = () => {
+      const ratio = Number(getWindowAreaRatio().toFixed(3))
+      const tooSmall = ratio < MIN_WINDOW_RATIO
+
+      if (tooSmall && !isWindowSmallRef.current) {
+        isWindowSmallRef.current = true
+        emitEvent('VIOLATION_DETECTED', {
+          reason: 'window_resized_below_threshold',
+          area_ratio: ratio,
+          threshold: MIN_WINDOW_RATIO,
+        })
+        showToast('⚠️ Window size dropped below 80% of screen area.')
+      }
+
+      if (!tooSmall && isWindowSmallRef.current) {
+        isWindowSmallRef.current = false
+        emitEvent('WINDOW_RESIZE_NORMALIZED', {
+          area_ratio: ratio,
+          threshold: MIN_WINDOW_RATIO,
+        })
+      }
+    }
+
+    const handleBlockedKeys = (e) => {
+      const key = e.key.toLowerCase()
+      const isCtrlC = e.ctrlKey && key === 'c'
+      const isCtrlV = e.ctrlKey && key === 'v'
+      const isF12 = e.key === 'F12'
+      const isPrintScreen = e.key === 'PrintScreen'
+      const shouldBlock = isCtrlC || isCtrlV || isF12 || isPrintScreen
+
+      if (!shouldBlock) return
+
+      e.preventDefault()
+      emitEvent('VIOLATION_DETECTED', {
+        reason: 'blocked_keyboard_shortcut',
+        key: e.key,
+        ctrl: e.ctrlKey,
+        shift: e.shiftKey,
+        alt: e.altKey,
+      })
+
+      if (isCtrlC) showToast('⚠️ Ctrl+C is blocked during the exam.')
+      if (isCtrlV) showToast('⚠️ Ctrl+V is blocked during the exam.')
+      if (isF12) showToast('⚠️ F12 is blocked during the exam.')
+      if (isPrintScreen) showToast('⚠️ Print Screen attempt logged.')
+    }
+
+    const markIdle = () => {
+      if (isIdleRef.current) return
+      isIdleRef.current = true
+      emitEvent('VIOLATION_DETECTED', {
+        reason: 'idle_timeout',
+        idle_seconds: IDLE_TIMEOUT_MS / 1000,
+      })
+      showToast('⚠️ No input detected for 60 seconds (idle flagged).')
+    }
+
+    const resetIdleTimer = () => {
+      if (idleTimerRef.current) {
+        clearTimeout(idleTimerRef.current)
+      }
+
+      if (isIdleRef.current) {
+        isIdleRef.current = false
+        emitEvent('IDLE_RESUMED', { timestamp: new Date().toISOString() })
+      }
+
+      idleTimerRef.current = setTimeout(markIdle, IDLE_TIMEOUT_MS)
+    }
+
+    const activityEvents = ['mousemove', 'keydown', 'mousedown', 'touchstart']
+
+    handleResize()
+    resetIdleTimer()
+
     document.addEventListener('visibilitychange', handleVisibilityChange)
     document.addEventListener('contextmenu', handleContextMenu)
+    document.addEventListener('keydown', handleBlockedKeys)
+    window.addEventListener('resize', handleResize)
+    activityEvents.forEach((eventName) => {
+      document.addEventListener(eventName, resetIdleTimer)
+    })
+
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange)
       document.removeEventListener('contextmenu', handleContextMenu)
+      document.removeEventListener('keydown', handleBlockedKeys)
+      window.removeEventListener('resize', handleResize)
+      activityEvents.forEach((eventName) => {
+        document.removeEventListener(eventName, resetIdleTimer)
+      })
+      if (idleTimerRef.current) {
+        clearTimeout(idleTimerRef.current)
+      }
     }
   }, [emitEvent])
 
