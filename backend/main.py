@@ -21,7 +21,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Hawkeye – Integrity-First Exam Monitor", lifespan=lifespan)
+app = FastAPI(title="SENTINEL – Integrity-First Exam Monitor", lifespan=lifespan)
 
 # Allow the React dev server and any local origin during development
 app.add_middleware(
