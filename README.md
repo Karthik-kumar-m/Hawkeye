@@ -1,6 +1,96 @@
 # Hawkeye
 
-Hawkeye is an integrity-focused exam platform for managing timed tests, admitting only approved students, tracking exam activity in real time, and surfacing results, trust scores, and violation timelines in a teacher dashboard.
+Hawkeye: The Exam Guardrail System is a full-stack assessment integrity platform built to bring real-time observability, behavioral monitoring, and post-exam credibility analysis to browser-based examinations. The system combines a student-facing exam client with a live administrative monitoring dashboard so institutions can evaluate not only academic responses, but also the integrity posture of each session as it unfolds.
+
+Unlike heavyweight proctoring solutions that require intrusive local agents, Hawkeye operates as a lightweight, integrity-first middleware layer on top of the browser. It uses native browser APIs, client-side event instrumentation, WebSocket streaming, and server-side scoring logic to detect suspicious interaction patterns and convert them into an actionable Credibility Report.
+
+## Executive Summary
+
+Hawkeye was designed for a practical reality: most online exams are delivered through standard web browsers, yet browsers are optimized for open exploration rather than controlled assessment. That mismatch creates a structural integrity gap. Students can leave the exam tab, shrink the exam window to make space for external material, attempt copy-paste workflows, or remain inactive while consulting unauthorized sources, all without traditional exam systems providing meaningful behavioral context.
+
+Hawkeye addresses this gap through a two-part architecture. The Sentinel Client serves as the controlled exam workspace, continuously monitoring the browser environment for prohibited behaviors. The Auditor Dashboard provides instructors and administrators with a live operational view of each active session, including violation timelines, session state, and a continuously updated Trust Score from 0 to 100. Together, these components enable real-time supervision and evidence-backed post-exam review without requiring invasive software installation on student devices.
+
+## The Problem
+
+Browser-based assessments are convenient and scalable, but they inherit the openness of the web platform. In a standard exam delivery model, the browser remains capable of multitasking, navigation, content copying, developer-tool access, and layout manipulation. This creates several reliability issues:
+
+- Tab switching allows a student to leave the exam context and consult external sources.
+- Window resizing enables side-by-side viewing of notes, search results, or communication tools.
+- Keyboard shortcuts can expose browser controls, clipboard actions, print capture, or developer tooling.
+- Long inactivity intervals can indicate disengagement from the exam surface while attention is diverted elsewhere.
+
+The result is not just isolated policy violations, but an absence of measurable, time-stamped evidence about what happened during the exam session. Traditional browser-based testing systems may record answers and submission time, yet they often fail to generate a behavioral integrity trail. Hawkeye was built to close that observability gap.
+
+## The Solution & Architecture
+
+Hawkeye is structured as a coordinated frontend-backend system with real-time event streaming.
+
+### Sentinel Client
+
+The Sentinel Client is the frontend exam interface built with React, Tailwind CSS, and Vite. It is responsible for delivering the exam experience while simultaneously acting as a browser-behavior sensor layer. During an active session, it attaches event listeners to the document and window, monitors browser state changes, and normalizes these signals into structured exam events.
+
+When a suspicious action is detected, the client emits a `VIOLATION_DETECTED` event over a persistent WebSocket channel tied to the student session. Payloads include machine-readable reasons such as `tab_switch_duration`, `window_resized_below_threshold`, `blocked_keyboard_shortcut`, and `idle_timeout`, along with supporting metadata like away duration, key combinations, or measured window area ratios.
+
+### Auditor Dashboard
+
+The Auditor Dashboard is the administrative monitoring surface powered by FastAPI, WebSockets, and a relational persistence layer. It acts as the real-time observability hub for active exam sessions. Every event received from the Sentinel Client is persisted as a tracking record, enriched with server-side trust-state updates, and broadcast to connected monitoring views.
+
+This gives instructors a live timeline of student behavior rather than a delayed postmortem. The dashboard can show when a session started, when a violation occurred, how long a student was away from the exam, how many violations accumulated, and what the current Trust Score is at that exact moment.
+
+### Real-Time Interaction Model
+
+The system operates as a continuous loop:
+
+1. A student starts an exam session in the Sentinel Client.
+2. The client opens a WebSocket connection bound to that session.
+3. Browser integrity events are captured locally and transmitted immediately.
+4. The FastAPI backend persists each event and updates trust state when applicable.
+5. The backend broadcasts enriched monitoring events to the Auditor Dashboard.
+6. The dashboard renders a live violation timeline and updated Trust Score for administrative review.
+
+This architecture separates enforcement and observability concerns cleanly: the frontend detects and constrains behavior at the point of interaction, while the backend converts raw behavioral telemetry into durable session evidence.
+
+## Core Technical Mechanics
+
+Hawkeye’s integrity model is built around four primary guardrails engineered directly into the browser session.
+
+### 1. Tab-Switching Detection
+
+The system uses the Page Visibility API to determine when the exam document is no longer visible. When the page becomes hidden, the Sentinel Client records the departure timestamp and logs the start of a tab-switch violation. When visibility returns, the client computes the exact away duration in seconds and emits a follow-up violation event containing the measured absence interval.
+
+This approach is important because it produces more than a binary signal. Instead of only recording that the student left the tab, Hawkeye records how long they stayed away, which materially improves the quality of the resulting credibility assessment.
+
+### 2. Window Resizing Guardrail
+
+To counter side-by-side browsing and reduced exam visibility, the client calculates the ratio between the active browser window area and the available screen area. If the effective exam surface falls below 80 percent of the screen area, the action is treated as a violation and logged with the measured ratio and configured threshold.
+
+This implementation is more defensible than relying on width alone, because it evaluates usable screen real estate as a compound measurement of both width and height. When the window returns to an acceptable size, the client emits a normalization event so the monitoring timeline reflects both the violation and the recovery.
+
+### 3. Keyboard Hijacking and Shortcut Suppression
+
+The Sentinel Client intercepts prohibited keyboard activity at both the `window` and `document` levels using capture-phase listeners. It prevents default execution and logs intent when a student attempts actions associated with copying, pasting, browser control, developer tooling, or screen capture.
+
+Blocked combinations include copy and paste patterns such as `Ctrl+C` and `Ctrl+V`, browser-oriented shortcuts, developer-tool accelerators, `F12`, and `Print Screen`. Each blocked action is converted into a structured violation payload with the triggering key and modifier state, allowing the backend to retain a precise record of the attempted action without exposing exam content.
+
+### 4. Idle Detection
+
+Hawkeye treats prolonged inactivity as a meaningful integrity signal. The client maintains a rolling inactivity timer that is reset by user interaction events including mouse movement, key presses, mouse clicks, and touch input. If no qualifying activity occurs for more than 60 seconds, the client emits an `idle_timeout` violation.
+
+When activity resumes, the client records an `IDLE_RESUMED` event so the administrative timeline reflects both the onset and the end of the inactive period. This creates a more complete behavioral narrative and helps distinguish brief pauses from suspiciously extended disengagement.
+
+## The Trust Score Algorithm
+
+Each exam session begins with a Trust Score of 100. As violation events arrive over the session WebSocket, the backend applies a reason-aware deduction model that reduces the score according to behavioral severity.
+
+Low-severity events such as blocked clipboard or shortcut attempts carry smaller penalties. Moderate events such as window resizing below threshold or idle timeouts apply stronger deductions. Higher-risk context changes such as fullscreen exit, tab switching, and focus loss carry larger penalties, with time-based violations scaled further by the measured away duration. Longer absences from the exam surface therefore have a greater impact than brief accidental context changes.
+
+The resulting score is clamped between 0 and 100 and updated in real time as the session progresses. This allows Hawkeye to generate a final Credibility Report that is not based on a single rule trigger, but on the cumulative behavioral profile of the exam attempt. In practice, the Trust Score is best understood as an integrity confidence indicator: a quantitative summary of how consistently the student remained inside the expected exam environment.
+
+## Architectural Value
+
+Hawkeye’s core value lies in combining browser-native enforcement with real-time administrative visibility. It does not attempt to install invasive device-level surveillance software. Instead, it provides a pragmatic web-first control plane for digital assessments, giving educators a live behavioral evidence stream, a durable event timeline, and a defensible post-exam credibility signal.
+
+For institutions seeking a lightweight alternative to heavyweight proctoring stacks, Hawkeye provides a strong middle ground: immediate detection, continuous observability, and auditable integrity scoring within a standard browser-based delivery model.
 
 ## Current Feature Set
 
