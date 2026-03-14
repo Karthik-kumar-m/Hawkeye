@@ -544,7 +544,7 @@ export default function ExamView() {
           {/* Logo */}
           <div className="flex items-center gap-2 min-w-0">
             <ShieldCheck className="text-cyan-700" size={22} />
-            <span className="font-bold text-slate-800 text-sm tracking-wide">SENTINEL</span>
+            <span className="font-bold text-slate-800 text-sm tracking-wide">HAWKEYE</span>
             <span className="hidden lg:inline text-slate-300">|</span>
             <span className="hidden lg:inline text-sm font-medium text-slate-600 truncate max-w-[340px]">
               {testTitle}

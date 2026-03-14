@@ -6,6 +6,32 @@ const API_BASE = ''
 const TEACHER_REGISTER_API = '/api/v1/auth/teachers/register'
 const TEACHER_LOGIN_API = '/api/v1/auth/teachers/login'
 
+function HawkeyeLogo() {
+  return (
+    <div className="inline-flex items-center gap-4">
+      <div className="relative flex h-20 w-20 items-center justify-center overflow-hidden rounded-[28px] border border-white/20 bg-white/10 shadow-[0_24px_70px_rgba(8,145,178,0.28)]">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_30%,rgba(184,243,107,0.38),transparent_34%),linear-gradient(145deg,rgba(30,203,225,0.95),rgba(15,118,110,0.6))]" />
+        <div className="absolute inset-[6px] rounded-[22px] border border-white/20 bg-slate-950/20 backdrop-blur-sm" />
+        <div className="absolute h-9 w-9 rounded-full border border-white/30" />
+        <div className="absolute h-14 w-14 rounded-full border border-white/10" />
+        <ShieldCheck className="relative text-white drop-shadow-[0_6px_18px_rgba(0,0,0,0.35)]" size={34} />
+        <span className="absolute bottom-3 right-3 h-3 w-3 rounded-full bg-lime-300 shadow-[0_0_16px_rgba(184,243,107,0.9)]" />
+      </div>
+
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-[0.45em] text-teal-300/80">Exam Command</p>
+        <div className="flex items-center gap-3">
+          <span className="text-4xl font-extrabold tracking-[0.24em] text-white sm:text-5xl">HAWKEYE</span>
+          <span className="hidden rounded-full border border-white/15 bg-white/5 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.35em] text-teal-100/70 sm:inline-flex">
+            Live Integrity
+          </span>
+        </div>
+        <div className="mt-2 h-px w-full bg-gradient-to-r from-teal-300/70 via-cyan-200/60 to-transparent" />
+      </div>
+    </div>
+  )
+}
+
 function fmtCountdown(seconds) {
   const h = Math.floor(seconds / 3600)
   const m = Math.floor((seconds % 3600) / 60)
@@ -212,6 +238,7 @@ export default function Login() {
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-[#0a2e38] to-slate-950 p-6 flex items-center justify-center">
       <div className="max-w-7xl w-full grid grid-cols-1 lg:grid-cols-2 gap-8">
         <div className="flex flex-col justify-center">
+          <HawkeyeLogo />
           <span className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-teal-500/10 border border-teal-500/20 text-teal-400 text-sm font-semibold uppercase tracking-wider w-fit">
             <ShieldCheck size={16} /> Integrity-First Portal
           </span>
