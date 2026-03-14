@@ -27,6 +27,7 @@ try:
         SessionRead,
         SessionStartRequest,
         SessionStartResponse,
+        SessionSummaryResponse,
     )
 except ImportError:
     from database import get_db
@@ -45,6 +46,7 @@ except ImportError:
         SessionRead,
         SessionStartRequest,
         SessionStartResponse,
+        SessionSummaryResponse,
     )
 
 
@@ -287,6 +289,43 @@ async def start_session(body: SessionStartRequest, db: AsyncSession = Depends(ge
         db.add(user)
         await db.flush()
 
+    active_session_result = await db.execute(
+        select(ExamSession)
+        .where(ExamSession.student_id == user.id, ExamSession.status == "active")
+        .order_by(ExamSession.start_time.desc())
+        .limit(1)
+    )
+    active_session = active_session_result.scalar_one_or_none()
+    if active_session is not None:
+        # Smart duplicate handling: allow resume if the prior attempt is still active.
+        return SessionStartResponse(
+            session_id=active_session.id,
+            student_name=student.full_name,
+            student_identifier=student.username,
+            test_id=test.test_id,
+            test_title=test.title,
+            test_pdf_url=test.pdf_url,
+            test_start_time=test_start_time,
+            test_end_time=test_end_time,
+            duration_minutes=test.duration_minutes or 45,
+            status=active_session.status,
+            trust_score=active_session.trust_score,
+            started_at=active_session.start_time,
+        )
+
+    prior_session_result = await db.execute(
+        select(ExamSession)
+        .where(ExamSession.student_id == user.id)
+        .order_by(ExamSession.start_time.desc())
+        .limit(1)
+    )
+    prior_session = prior_session_result.scalar_one_or_none()
+    if prior_session is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="Exam already completed for this student and test",
+        )
+
     session = ExamSession(student_id=user.id, status="active", trust_score=100)
     db.add(session)
     await db.commit()
@@ -363,6 +402,45 @@ async def complete_session(session_id: uuid.UUID, db: AsyncSession = Depends(get
     await db.commit()
 
     return SessionCompleteResponse(session_id=session.id, status=session.status)
+
+
+@router.get("/{session_id}/summary", response_model=SessionSummaryResponse)
+async def get_session_summary(session_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    session_result = await db.execute(select(ExamSession).where(ExamSession.id == session_id))
+    exam_session = session_result.scalar_one_or_none()
+    if exam_session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    user_result = await db.execute(select(User).where(User.id == exam_session.student_id))
+    user = user_result.scalar_one_or_none()
+
+    test_id_code = None
+    if user is not None:
+                _, _, test_id_code = _unpack_username(user.username)
+
+    violation_result = await db.execute(
+        select(TrackingEvent).where(
+            TrackingEvent.session_id == exam_session.id,
+            TrackingEvent.event_type == "VIOLATION_DETECTED",
+        )
+    )
+    violations = len(violation_result.scalars().all())
+
+    correct_answers, total_questions, score_percent = await _compute_session_score(
+        db,
+        exam_session,
+        test_id_code,
+    )
+
+    return SessionSummaryResponse(
+        session_id=exam_session.id,
+        status=exam_session.status,
+        trust_score=exam_session.trust_score,
+        violations=violations,
+        correct_answers=correct_answers,
+        total_questions=total_questions,
+        score_percent=score_percent,
+    )
 
 
 @router.get("/{session_id}/events", response_model=list[SessionEventRead])

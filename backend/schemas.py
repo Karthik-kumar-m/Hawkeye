@@ -124,6 +124,16 @@ class SessionCompleteResponse(BaseModel):
     status: str
 
 
+class SessionSummaryResponse(BaseModel):
+    session_id: uuid.UUID
+    status: str
+    trust_score: int
+    violations: int
+    correct_answers: Optional[int] = None
+    total_questions: Optional[int] = None
+    score_percent: Optional[float] = None
+
+
 class SessionEventRead(BaseModel):
     id: uuid.UUID
     session_id: uuid.UUID

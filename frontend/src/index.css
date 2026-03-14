@@ -13,6 +13,12 @@
   --panel-border: rgba(255, 255, 255, 0.45);
 }
 
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
 body {
   @apply text-slate-800 antialiased;
   font-family: 'Plus Jakarta Sans', sans-serif;

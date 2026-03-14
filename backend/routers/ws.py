@@ -24,6 +24,41 @@ except ImportError:
 router = APIRouter()
 
 
+def _compute_violation_penalty(payload: dict | None) -> int:
+    """Return a practical trust-score deduction based on violation severity."""
+    if not isinstance(payload, dict):
+        return 2
+
+    reason = str(payload.get("reason") or "").strip().lower()
+    away_seconds_raw = payload.get("away_seconds")
+    away_seconds = 0.0
+    try:
+        away_seconds = float(away_seconds_raw) if away_seconds_raw is not None else 0.0
+    except (TypeError, ValueError):
+        away_seconds = 0.0
+
+    # Lower penalties for minor/accidental events, higher for strong cheating signals.
+    if reason in {"right_click", "clipboard_event_blocked", "blocked_keyboard_shortcut"}:
+        return 2
+    if reason == "window_resized_below_threshold":
+        return 3
+    if reason in {"window_focus_lost", "tab_switch_start"}:
+        return 4
+    if reason == "fullscreen_exited":
+        return 6
+    if reason == "idle_timeout":
+        return 3
+    if reason in {"tab_switch_duration", "window_focus_returned"}:
+        if away_seconds >= 120:
+            return 7
+        if away_seconds >= 60:
+            return 5
+        return 3
+
+    # Safe default for unknown violations.
+    return 2
+
+
 @router.websocket("/ws/admin/{admin_id}")
 async def ws_admin(websocket: WebSocket, admin_id: str):
     """
@@ -82,14 +117,15 @@ async def ws_student(websocket: WebSocket, session_id: str):
                 )
                 db.add(event)
 
-                # 2. If it's a violation, decrement trust_score
+                # 2. If it's a violation, decrement trust_score using reason-aware penalty
                 if event_in.event_type == "VIOLATION_DETECTED":
                     result = await db.execute(
                         select(ExamSession).where(ExamSession.id == session_uuid)
                     )
                     session_obj = result.scalar_one_or_none()
                     if session_obj:
-                        session_obj.trust_score = max(0, session_obj.trust_score - 10)
+                        penalty = _compute_violation_penalty(event_in.payload)
+                        session_obj.trust_score = max(0, session_obj.trust_score - penalty)
                         trust_score = session_obj.trust_score
                     else:
                         trust_score = None

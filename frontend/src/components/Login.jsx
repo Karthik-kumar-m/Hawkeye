@@ -175,6 +175,11 @@ export default function Login() {
           return
         }
 
+        if (response.status === 409) {
+          setGeneralStudentError(detail)
+          return
+        }
+
         setGeneralStudentError(detail)
         return
       }
@@ -204,191 +209,216 @@ export default function Login() {
   }
 
   return (
-    <div className="app-shell flex items-center justify-center">
-      <div className="panel animate-rise-in max-w-md w-full">
-        {/* Header */}
-        <div className="flex flex-col items-center mb-8">
-          <ShieldCheck className="text-cyan-700 mb-3" size={48} strokeWidth={1.5} />
-          <span className="chip bg-cyan-100 text-cyan-800 mb-3">Integrity First</span>
-          <h1 className="text-2xl font-bold text-slate-800 text-center tracking-tight">
-            SENTINEL: Integrity-First Exam Platform
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-[#0a2e38] to-slate-950 p-6 flex items-center justify-center">
+      <div className="max-w-7xl w-full grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <div className="flex flex-col justify-center">
+          <span className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-teal-500/10 border border-teal-500/20 text-teal-400 text-sm font-semibold uppercase tracking-wider w-fit">
+            <ShieldCheck size={16} /> Integrity-First Portal
+          </span>
+          <h1 className="text-5xl lg:text-6xl font-extrabold text-white tracking-tight leading-tight mt-6">
+            Candidate Access, Live Integrity, Real-Time Control
           </h1>
+          <p className="text-lg text-teal-100/70 mt-4">
+            Start student exams with schedule-aware access or switch to teacher mode for exam operations.
+            This experience is optimized for secure login, real-time status, and guided access.
+          </p>
+
+          <div className="mt-8 grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="bg-white/5 backdrop-blur-lg border border-white/10 rounded-3xl p-6 text-white">
+              <p className="text-sm uppercase tracking-wider text-teal-300">Access Mode</p>
+              <p className="text-2xl font-bold mt-2">{mode === 'student' ? 'Student' : 'Teacher'}</p>
+              <p className="text-sm text-teal-100/70 mt-2">
+                {mode === 'student'
+                  ? 'Student login validates credentials and test window before entry.'
+                  : 'Teacher login supports both sign-in and account registration.'}
+              </p>
+            </div>
+            <div className="bg-white/5 backdrop-blur-lg border border-white/10 rounded-3xl p-6 text-white">
+              <p className="text-sm uppercase tracking-wider text-teal-300">Live Schedule</p>
+              <p className="text-2xl font-bold mt-2">
+                {mode === 'student' && countdown ? countdown.phase.toUpperCase() : 'READY'}
+              </p>
+              <p className="text-sm text-teal-100/70 mt-2">
+                Countdown and schedule status appear instantly after entering the test ID.
+              </p>
+            </div>
+          </div>
         </div>
 
-        <div className="mb-6 grid grid-cols-2 rounded-xl border border-slate-200 p-1 bg-slate-50/90">
-          <button
-            type="button"
-            onClick={() => setMode('student')}
-            className={`rounded-lg px-3 py-2 text-sm font-semibold transition-colors ${
-              mode === 'student' ? 'bg-cyan-700 text-white' : 'text-slate-600 hover:bg-white'
-            }`}
-          >
-            Student Login
-          </button>
-          <button
-            type="button"
-            onClick={() => setMode('teacher')}
-            className={`rounded-lg px-3 py-2 text-sm font-semibold transition-colors ${
-              mode === 'teacher' ? 'bg-cyan-700 text-white' : 'text-slate-600 hover:bg-white'
-            }`}
-          >
-            Teacher Login
-          </button>
-        </div>
-
-        {/* Form */}
-        <form onSubmit={handleStart} className="space-y-5">
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">
-              {mode === 'student' ? 'Username (USN)' : 'Teacher Username'}
-            </label>
-            <input
-              type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              placeholder={mode === 'student' ? 'e.g. 4JN24CS065' : 'e.g. teacher01'}
-              required
-              className="input-field"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">
-              {mode === 'student' ? 'Password (Test ID)' : 'Password'}
-            </label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder={
-                mode === 'student'
-                  ? 'Enter test ID provided by teacher'
-                  : 'Enter teacher password'
-              }
-              required
-              className="input-field"
-            />
-          </div>
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="primary-btn w-full"
-          >
-            {loading
-              ? 'AUTHENTICATING...'
-              : mode === 'student'
-              ? 'LOGIN & START'
-              : isRegisterMode
-              ? 'REGISTER TEACHER'
-              : 'LOGIN TEACHER'}
-          </button>
-
-          {mode === 'teacher' && (
+        <div className="bg-white/10 backdrop-blur-xl border border-white/20 rounded-[2rem] p-8 lg:p-12 shadow-2xl">
+          <div className="mb-6 grid grid-cols-2 rounded-xl border border-white/10 bg-slate-900/40 p-1">
             <button
               type="button"
-              onClick={() => setIsRegisterMode((value) => !value)}
-              className="w-full text-xs text-cyan-800 hover:text-cyan-900"
+              onClick={() => setMode('student')}
+              className={`rounded-lg px-3 py-3 text-sm font-semibold transition-colors ${
+                mode === 'student' ? 'bg-teal-500 text-slate-900' : 'text-teal-100/80 hover:bg-white/5'
+              }`}
             >
-              {isRegisterMode ? 'Have account? Switch to login' : 'New teacher? Create account'}
+              Student Login
             </button>
-          )}
+            <button
+              type="button"
+              onClick={() => setMode('teacher')}
+              className={`rounded-lg px-3 py-3 text-sm font-semibold transition-colors ${
+                mode === 'teacher' ? 'bg-teal-500 text-slate-900' : 'text-teal-100/80 hover:bg-white/5'
+              }`}
+            >
+              Teacher Login
+            </button>
+          </div>
 
-          {mode === 'teacher' && authError && <p className="text-xs text-red-600">{authError}</p>}
+          <form onSubmit={handleStart} className="space-y-5">
+            <div>
+              <label className="block text-sm font-medium text-teal-50 mb-2">
+                {mode === 'student' ? 'Username (USN)' : 'Teacher Username'}
+              </label>
+              <input
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder={mode === 'student' ? 'e.g. 4JN24CS065' : 'e.g. teacher01'}
+                required
+                className="w-full bg-slate-900/50 border border-white/10 text-white rounded-xl p-4 focus:ring-2 focus:ring-teal-500 focus:outline-none placeholder-slate-400"
+              />
+            </div>
 
-          {mode === 'student' && (credentialError || scheduleWindowError || generalStudentError) && (
-            <div className="space-y-2">
-              {credentialError && (
-                <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-red-700">Credential Error</p>
-                  <p className="text-xs text-red-700 mt-0.5">{credentialError}</p>
+            <div>
+              <label className="block text-sm font-medium text-teal-50 mb-2">
+                {mode === 'student' ? 'Password (Test ID)' : 'Password'}
+              </label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder={
+                  mode === 'student'
+                    ? 'Enter test ID provided by teacher'
+                    : 'Enter teacher password'
+                }
+                required
+                className="w-full bg-slate-900/50 border border-white/10 text-white rounded-xl p-4 focus:ring-2 focus:ring-teal-500 focus:outline-none placeholder-slate-400"
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full bg-teal-500 hover:bg-teal-400 text-slate-900 font-bold text-lg py-4 rounded-xl transition-all duration-200 mt-6"
+            >
+              {loading
+                ? 'AUTHENTICATING...'
+                : mode === 'student'
+                ? 'LOGIN & START'
+                : isRegisterMode
+                ? 'REGISTER TEACHER'
+                : 'LOGIN TEACHER'}
+            </button>
+
+            {mode === 'teacher' && (
+              <button
+                type="button"
+                onClick={() => setIsRegisterMode((value) => !value)}
+                className="w-full text-sm text-teal-200 hover:text-teal-100"
+              >
+                {isRegisterMode ? 'Have account? Switch to login' : 'New teacher? Create account'}
+              </button>
+            )}
+
+            {mode === 'teacher' && authError && <p className="text-sm text-red-300">{authError}</p>}
+
+            {mode === 'student' && (credentialError || scheduleWindowError || generalStudentError) && (
+              <div className="space-y-2">
+                {credentialError && (
+                  <div className="rounded-xl border border-red-400/40 bg-red-500/10 px-3 py-2">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-red-300">Credential Error</p>
+                    <p className="text-sm text-red-200 mt-0.5">{credentialError}</p>
+                  </div>
+                )}
+
+                {scheduleWindowError && (
+                  <div className="rounded-xl border border-amber-400/40 bg-amber-500/10 px-3 py-2">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-300">Schedule Window</p>
+                    <p className="text-sm text-amber-200 mt-0.5">{scheduleWindowError}</p>
+                  </div>
+                )}
+
+                {generalStudentError && (
+                  <div className="rounded-xl border border-red-400/40 bg-red-500/10 px-3 py-2">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-red-300">Login Error</p>
+                    <p className="text-sm text-red-200 mt-0.5">{generalStudentError}</p>
+                  </div>
+                )}
+              </div>
+            )}
+          </form>
+
+          {mode === 'student' && scheduleStatus !== 'idle' && (
+            <div className="mt-6 rounded-2xl border border-white/10 bg-slate-900/40 px-4 py-4 text-sm animate-rise-in">
+              {scheduleStatus === 'loading' && (
+                <div className="flex items-center gap-2 text-teal-100/70">
+                  <Loader2 size={14} className="animate-spin" />
+                  Looking up test schedule...
                 </div>
               )}
 
-              {scheduleWindowError && (
-                <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-700">Schedule Window</p>
-                  <p className="text-xs text-amber-700 mt-0.5">{scheduleWindowError}</p>
+              {scheduleStatus === 'not_found' && (
+                <div className="flex items-center gap-2 text-amber-300">
+                  <XCircle size={14} />
+                  Test ID not found or not yet published
                 </div>
               )}
 
-              {generalStudentError && (
-                <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-red-700">Login Error</p>
-                  <p className="text-xs text-red-700 mt-0.5">{generalStudentError}</p>
-                </div>
+              {scheduleStatus === 'found' && schedule && countdown && (
+                <>
+                  <p className="font-semibold text-teal-50 mb-2 truncate">{schedule.title}</p>
+
+                  {countdown.phase === 'unscheduled' && (
+                    <div className="text-teal-100/70">No schedule set for this test</div>
+                  )}
+
+                  {countdown.phase === 'before' && (
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-1.5 text-amber-300 font-medium">
+                        <Clock size={14} />
+                        Test has not started yet - starts in
+                      </div>
+                      <div className="text-3xl font-mono font-bold text-amber-300 tracking-widest">
+                        {fmtCountdown(countdown.seconds)}
+                      </div>
+                      <div className="text-xs text-teal-100/60">
+                        Starts: {new Date(schedule.start_time).toLocaleString()} ·{' '}
+                        Duration: {schedule.duration_minutes} min
+                      </div>
+                    </div>
+                  )}
+
+                  {countdown.phase === 'live' && (
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-1.5 text-emerald-300 font-medium">
+                        <CheckCircle size={14} />
+                        Test is live - window closes in
+                      </div>
+                      <div className="text-3xl font-mono font-bold text-emerald-300 tracking-widest">
+                        {fmtCountdown(countdown.seconds)}
+                      </div>
+                      <div className="text-xs text-teal-100/60">
+                        Duration: {schedule.duration_minutes} min · Ends:{' '}
+                        {new Date(schedule.end_time).toLocaleString()}
+                      </div>
+                    </div>
+                  )}
+
+                  {countdown.phase === 'ended' && (
+                    <div className="flex items-center gap-1.5 text-red-300">
+                      <XCircle size={14} />
+                      This test window has ended - login is no longer accepted
+                    </div>
+                  )}
+                </>
               )}
             </div>
           )}
-        </form>
-
-        {/* Schedule countdown panel */}
-        {mode === 'student' && scheduleStatus !== 'idle' && (
-          <div className="mt-4 rounded-xl border border-slate-200 bg-white/80 px-4 py-3 text-sm animate-rise-in">
-            {scheduleStatus === 'loading' && (
-              <div className="flex items-center gap-2 text-slate-400">
-                <Loader2 size={14} className="animate-spin" />
-                Looking up test schedule…
-              </div>
-            )}
-
-            {scheduleStatus === 'not_found' && (
-              <div className="flex items-center gap-2 text-amber-600">
-                <XCircle size={14} />
-                Test ID not found or not yet published
-              </div>
-            )}
-
-            {scheduleStatus === 'found' && schedule && countdown && (
-              <>
-                <p className="font-semibold text-slate-700 mb-2 truncate">{schedule.title}</p>
-
-                {countdown.phase === 'unscheduled' && (
-                  <div className="text-slate-400">No schedule set for this test</div>
-                )}
-
-                {countdown.phase === 'before' && (
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-1.5 text-amber-600 font-medium">
-                      <Clock size={14} />
-                      Test hasn't started yet — starts in
-                    </div>
-                    <div className="text-3xl font-mono font-bold text-amber-500 tracking-widest">
-                      {fmtCountdown(countdown.seconds)}
-                    </div>
-                    <div className="text-xs text-slate-400">
-                      Starts: {new Date(schedule.start_time).toLocaleString()} ·{' '}
-                      Duration: {schedule.duration_minutes} min
-                    </div>
-                  </div>
-                )}
-
-                {countdown.phase === 'live' && (
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-1.5 text-green-600 font-medium">
-                      <CheckCircle size={14} />
-                      Test is LIVE — window closes in
-                    </div>
-                    <div className="text-3xl font-mono font-bold text-green-500 tracking-widest">
-                      {fmtCountdown(countdown.seconds)}
-                    </div>
-                    <div className="text-xs text-slate-400">
-                      Duration: {schedule.duration_minutes} min · Ends:{' '}
-                      {new Date(schedule.end_time).toLocaleString()}
-                    </div>
-                  </div>
-                )}
-
-                {countdown.phase === 'ended' && (
-                  <div className="flex items-center gap-1.5 text-red-600">
-                    <XCircle size={14} />
-                    This test window has ended — login is no longer accepted
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-        )}
+        </div>
       </div>
     </div>
   )

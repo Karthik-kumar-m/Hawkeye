@@ -390,6 +390,49 @@ async def get_test_by_code(test_id: str, db: AsyncSession = Depends(get_db)):
     return _as_exam_test_read(test)
 
 
+@router.get("/{test_id}/questions", response_model=list[QuestionPreviewItem])
+async def get_test_questions(test_id: str, db: AsyncSession = Depends(get_db)):
+    test_result = await db.execute(
+        select(ExamTest).where(ExamTest.test_id == test_id.strip().upper())
+    )
+    test = test_result.scalar_one_or_none()
+    if test is None:
+        raise HTTPException(status_code=404, detail="Test not found")
+
+    questions_result = await db.execute(
+        select(Question)
+        .where(Question.test_id == test.id)
+        .order_by(Question.question_number.asc())
+    )
+    questions = list(questions_result.scalars().all())
+    if questions:
+        return [
+            QuestionPreviewItem(
+                question_number=question.question_number,
+                question_text=question.question_text,
+                option_a=question.option_a,
+                option_b=question.option_b,
+                option_c=question.option_c,
+                option_d=question.option_d,
+                correct_option=question.correct_option,
+            )
+            for question in questions
+        ]
+
+    # Legacy tests may not have persisted question rows; attempt to parse from stored file.
+    pdf_relative = (test.pdf_url or "").lstrip("/")
+    pdf_path = Path(__file__).resolve().parent.parent / pdf_relative
+    if not pdf_path.exists() or not pdf_path.is_file():
+        return []
+
+    try:
+        content = pdf_path.read_bytes()
+        parsed_questions, _, _ = _parse_question_source(content)
+        return parsed_questions
+    except Exception:
+        return []
+
+
 @router.get("/", response_model=list[ExamTestRead])
 async def list_tests(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(ExamTest).order_by(ExamTest.created_at.desc()))
